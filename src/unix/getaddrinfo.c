@@ -61,7 +61,7 @@ static void uv__getaddrinfo_done(struct uv__work* w, int status) {
   req->service = NULL;
   req->hostname = NULL;
 
-  if (status == -UV_ECANCELED) {
+  if (status == -ECANCELED) {
     assert(req->retcode == 0);
     req->retcode = UV_EAI_CANCELED;
   }
@@ -83,7 +83,7 @@ int uv_getaddrinfo(uv_loop_t* loop,
   char* buf;
 
   if (req == NULL || cb == NULL || (hostname == NULL && service == NULL))
-    return uv__set_artificial_error(loop, UV_EINVAL);
+    return -EINVAL;
 
   hostname_len = hostname ? strlen(hostname) + 1 : 0;
   service_len = service ? strlen(service) + 1 : 0;
@@ -91,7 +91,7 @@ int uv_getaddrinfo(uv_loop_t* loop,
   buf = malloc(hostname_len + service_len + hints_len);
 
   if (buf == NULL)
-    return uv__set_artificial_error(loop, UV_ENOMEM);
+    return -ENOMEM;
 
   uv__req_init(loop, req, UV_GETADDRINFO);
   req->loop = loop;

@@ -111,16 +111,16 @@ static void cleanup_threadpool(void) {
 
 
 static void fs_cb(uv_fs_t* req) {
-  ASSERT(req->errorno == UV_ECANCELED);
+  ASSERT(req->result == UV_ECANCELED);
   uv_fs_req_cleanup(req);
   fs_cb_called++;
 }
 
 
 static void getaddrinfo_cb(uv_getaddrinfo_t* req,
-                           int err,
+                           int status,
                            struct addrinfo* res) {
-  ASSERT(err == UV_EAI_CANCELED);
+  ASSERT(status == UV_EAI_CANCELED);
   ASSERT(res == NULL);
   uv_freeaddrinfo(res);  /* Should not crash. */
   getaddrinfo_cb_called++;
@@ -133,8 +133,7 @@ static void work2_cb(uv_work_t* req) {
 
 
 static void done2_cb(uv_work_t* req, int status) {
-  ASSERT(uv_last_error(req->loop).code == UV_ECANCELED);
-  ASSERT(status == -1);
+  ASSERT(status == UV_ECANCELED);
   done2_cb_called++;
 }
 

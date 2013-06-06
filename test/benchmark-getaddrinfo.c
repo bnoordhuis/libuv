@@ -41,10 +41,9 @@ static int64_t end_time;
 static void getaddrinfo_initiate(uv_getaddrinfo_t* handle);
 
 
-static void getaddrinfo_cb(uv_getaddrinfo_t* handle,
-                          int err,
-                          struct addrinfo* res) {
-  ASSERT(err == 0);
+static void getaddrinfo_cb(uv_getaddrinfo_t* handle, int status,
+    struct addrinfo* res) {
+  ASSERT(status == 0);
   calls_completed++;
   if (calls_initiated < TOTAL_CALLS) {
     getaddrinfo_initiate(handle);
