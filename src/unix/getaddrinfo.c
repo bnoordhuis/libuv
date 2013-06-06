@@ -28,32 +28,24 @@
 
 
 static void uv__getaddrinfo_work(struct uv__work* w) {
-  uv_getaddrinfo_t* req = container_of(w, uv_getaddrinfo_t, work_req);
+  uv_getaddrinfo_t* req;
+  int err;
 
-  req->retcode = getaddrinfo(req->hostname,
-                             req->service,
-                             req->hints,
-                             &req->res);
+  req = container_of(w, uv_getaddrinfo_t, work_req);
+  err = getaddrinfo(req->hostname, req->service, req->hints, &req->res);
+  req->retcode = uv__getaddrinfo_translate_error(err);
 }
 
 
 static void uv__getaddrinfo_done(struct uv__work* w, int status) {
   uv_getaddrinfo_t* req;
   struct addrinfo *res;
-  size_t hostlen;
 
   req = container_of(w, uv_getaddrinfo_t, work_req);
   uv__req_unregister(req->loop, req);
 
   res = req->res;
   req->res = NULL;
-
-  (void) &hostlen;  /* Silence unused variable warning. */
-  hostlen = 0;
-#if defined(__sun)
-  if (req->hostname != NULL)
-    hostlen = strlen(req->hostname);
-#endif
 
   /* See initialization in uv_getaddrinfo(). */
   if (req->hints)
@@ -71,33 +63,10 @@ static void uv__getaddrinfo_done(struct uv__work* w, int status) {
 
   if (status == -UV_ECANCELED) {
     assert(req->retcode == 0);
-    req->retcode = UV_ECANCELED;
-    uv__set_artificial_error(req->loop, UV_ECANCELED);
-    req->cb(req, -1, NULL);
-    return;
+    req->retcode = UV_EAI_CANCELED;
   }
 
-  if (req->retcode == 0) {
-    req->cb(req, 0, res);
-    return;
-  }
-
-  if (req->retcode == EAI_NONAME)
-    uv__set_sys_error(req->loop, ENOENT);
-#if defined(EAI_NODATA)  /* Newer FreeBSDs don't have EAI_NODATA. */
-  else if (req->retcode == EAI_NODATA)
-    uv__set_sys_error(req->loop, ENOENT);
-#endif
-#if defined(__sun)
-  else if (req->retcode == EAI_MEMORY && hostlen >= MAXHOSTNAMELEN)
-    uv__set_sys_error(req->loop, ENOENT);
-#endif
-  else {
-    req->loop->last_err.code = UV_EADDRINFO;
-    req->loop->last_err.sys_errno_ = req->retcode;
-  }
-
-  req->cb(req, -1, res);
+  req->cb(req, req->retcode, res);
 }
 
 

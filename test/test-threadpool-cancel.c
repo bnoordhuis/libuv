@@ -118,10 +118,9 @@ static void fs_cb(uv_fs_t* req) {
 
 
 static void getaddrinfo_cb(uv_getaddrinfo_t* req,
-                           int status,
+                           int err,
                            struct addrinfo* res) {
-  ASSERT(UV_ECANCELED == uv_last_error(req->loop).code);
-  ASSERT(status == -1);
+  ASSERT(err == UV_EAI_CANCELED);
   ASSERT(res == NULL);
   uv_freeaddrinfo(res);  /* Should not crash. */
   getaddrinfo_cb_called++;
