@@ -37,10 +37,10 @@ static int fail_cb_called;
 
 
 static void getaddrinfo_fail_cb(uv_getaddrinfo_t* req,
-                                int status,
+                                int err,
                                 struct addrinfo* res) {
   ASSERT(fail_cb_called == 0);
-  ASSERT(status == -1);
+  ASSERT(err < 0);
   ASSERT(res == NULL);
   uv_freeaddrinfo(res);  /* Should not crash. */
   fail_cb_called++;
@@ -48,7 +48,7 @@ static void getaddrinfo_fail_cb(uv_getaddrinfo_t* req,
 
 
 static void getaddrinfo_basic_cb(uv_getaddrinfo_t* handle,
-                                 int status,
+                                 int err,
                                  struct addrinfo* res) {
   ASSERT(handle == getaddrinfo_handle);
   getaddrinfo_cbs++;
@@ -58,7 +58,7 @@ static void getaddrinfo_basic_cb(uv_getaddrinfo_t* handle,
 
 
 static void getaddrinfo_cuncurrent_cb(uv_getaddrinfo_t* handle,
-                                      int status,
+                                      int err,
                                       struct addrinfo* res) {
   int i;
   int* data = (int*)handle->data;

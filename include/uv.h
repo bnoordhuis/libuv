@@ -64,12 +64,35 @@ extern "C" {
 # include "uv-private/uv-win.h"
 #endif
 
+/* libuv maps EAI_* error codes to its own set of error codes to work around
+ * the fact that:
+ *
+ *  a) not all platforms define all the EAI_* constants, and
+ *
+ *  b) the EAI_* error codes are > 0 on some platforms but < 0 on other
+ *     platforms. We always want them to be < 0 for easy error checking
+ *     in uv_getaddrinfo() callbacks.
+ */
+#define UV_EAI_ADDRFAMILY (-1)
+#define UV_EAI_AGAIN      (-2)
+#define UV_EAI_BADFLAGS   (-3)
+#define UV_EAI_CANCELED   (-4)
+#define UV_EAI_FAIL       (-5)
+#define UV_EAI_FAMILY     (-6)
+#define UV_EAI_MEMORY     (-7)
+#define UV_EAI_NODATA     (-8)
+#define UV_EAI_NONAME     (-9)
+#define UV_EAI_OVERFLOW   (-10)
+#define UV_EAI_SERVICE    (-11)
+#define UV_EAI_SOCKTYPE   (-12)
+#define UV_EAI_SYSTEM     (-13)  /* TODO(bnoordhuis) Retain errno. */
+#define UV_EAI_UNKNOWN    (-14)  /* Getting this error is a bug. */
+
 /* Expand this list if necessary. */
 #define UV_ERRNO_MAP(XX)                                                      \
   XX( -1, UNKNOWN, "unknown error")                                           \
   XX(  0, OK, "success")                                                      \
   XX(  1, EOF, "end of file")                                                 \
-  XX(  2, EADDRINFO, "getaddrinfo error")                                     \
   XX(  3, EACCES, "permission denied")                                        \
   XX(  4, EAGAIN, "resource temporarily unavailable")                         \
   XX(  5, EADDRINUSE, "address already in use")                               \
@@ -108,9 +131,6 @@ extern "C" {
   XX( 39, EPROTOTYPE, "protocol wrong type for socket")                       \
   XX( 40, ETIMEDOUT, "connection timed out")                                  \
   XX( 41, ECHARSET, "invalid Unicode character")                              \
-  XX( 42, EAIFAMNOSUPPORT, "address family for hostname not supported")       \
-  XX( 44, EAISERVICE, "servname not supported for ai_socktype")               \
-  XX( 45, EAISOCKTYPE, "ai_socktype not supported")                           \
   XX( 46, ESHUTDOWN, "cannot send after transport endpoint shutdown")         \
   XX( 47, EEXIST, "file already exists")                                      \
   XX( 48, ESRCH, "no such process")                                           \
@@ -380,7 +400,7 @@ typedef void (*uv_fs_cb)(uv_fs_t* req);
 typedef void (*uv_work_cb)(uv_work_t* req);
 typedef void (*uv_after_work_cb)(uv_work_t* req, int status);
 typedef void (*uv_getaddrinfo_cb)(uv_getaddrinfo_t* req,
-                                  int status,
+                                  int err,
                                   struct addrinfo* res);
 
 typedef struct {
@@ -1292,10 +1312,9 @@ struct uv_getaddrinfo_s {
  * If successful, your callback gets called sometime in the future with the
  * lookup result, which is either:
  *
- *  a) status == 0, the res argument points to a valid struct addrinfo, or
- *  b) status == -1, the res argument is NULL.
- *
- * On NXDOMAIN, the status code is -1 and uv_last_error() returns UV_ENOENT.
+ *  a) err == 0, the res argument points to a valid struct addrinfo, or
+ *  b) err < 0, the res argument is NULL. See the UV_EAI_* constants and
+ *     uv_getaddrinfo_strerror().
  *
  * Call uv_freeaddrinfo() to free the addrinfo structure.
  */
@@ -1307,9 +1326,16 @@ UV_EXTERN int uv_getaddrinfo(uv_loop_t* loop,
                              const struct addrinfo* hints);
 
 /*
+ * Return a string representing the getaddrinfo() error. |err| should be one
+ * of the UV_EAI_* constants or zero.
+ */
+UV_EXTERN const char* uv_getaddrinfo_strerror(int err);
+
+/*
  * Free the struct addrinfo. Passing NULL is allowed and is a no-op.
  */
 UV_EXTERN void uv_freeaddrinfo(struct addrinfo* ai);
+
 
 /* uv_spawn() options */
 typedef enum {

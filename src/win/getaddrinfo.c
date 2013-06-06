@@ -56,26 +56,6 @@
 #define ALIGNED_SIZE(X)     ((((X) + 3) >> 2) << 2)
 
 
-/*
- * getaddrinfo error code mapping
- * Falls back to uv_translate_sys_error if no match
- */
-static uv_err_code uv_translate_eai_error(int eai_errno) {
-  switch (eai_errno) {
-    case ERROR_SUCCESS:               return UV_OK;
-    case EAI_BADFLAGS:                return UV_EBADF;
-    case EAI_FAIL:                    return UV_EFAULT;
-    case EAI_FAMILY:                  return UV_EAIFAMNOSUPPORT;
-    case EAI_MEMORY:                  return UV_ENOMEM;
-    case EAI_NONAME:                  return UV_ENOENT;
-    case EAI_AGAIN:                   return UV_EAGAIN;
-    case EAI_SERVICE:                 return UV_EAISERVICE;
-    case EAI_SOCKTYPE:                return UV_EAISOCKTYPE;
-    default:                          return uv_translate_sys_error(eai_errno);
-  }
-}
-
-
 /* getaddrinfo worker thread implementation */
 static DWORD WINAPI getaddrinfo_thread_proc(void* parameter) {
   uv_getaddrinfo_t* req = (uv_getaddrinfo_t*) parameter;
@@ -115,7 +95,7 @@ void uv_process_getaddrinfo_req(uv_loop_t* loop, uv_getaddrinfo_t* req) {
   struct addrinfo* addrinfo_ptr;
   char* alloc_ptr = NULL;
   char* cur_ptr = NULL;
-  int status = 0;
+  int err = 0;
 
   /* release input parameter memory */
   if (req->alloc != NULL) {
@@ -134,7 +114,7 @@ void uv_process_getaddrinfo_req(uv_loop_t* loop, uv_getaddrinfo_t* req) {
         name_len = uv_utf16_to_utf8(addrinfow_ptr->ai_canonname, -1, NULL, 0);
         if (name_len == 0) {
           uv__set_sys_error(loop, GetLastError());
-          status = -1;
+          err = UV_EAI_SYSTEM;
           goto complete;
         }
         addrinfo_len += ALIGNED_SIZE(name_len);
@@ -199,13 +179,11 @@ void uv_process_getaddrinfo_req(uv_loop_t* loop, uv_getaddrinfo_t* req) {
         }
       }
     } else {
-      uv__set_artificial_error(loop, UV_ENOMEM);
-      status = -1;
+      err = UV_EAI_MEMORY;
     }
   } else {
     /* GetAddrInfo failed */
-    uv__set_artificial_error(loop, uv_translate_eai_error(req->retcode));
-    status = -1;
+    err = uv__getaddrinfo_translate_error(req->retcode);
   }
 
   /* return memory to system */
@@ -218,7 +196,7 @@ complete:
   uv__req_unregister(loop, req);
 
   /* finally do callback with converted result */
-  req->getaddrinfo_cb(req, status, (struct addrinfo*)alloc_ptr);
+  req->getaddrinfo_cb(req, err, (struct addrinfo*)alloc_ptr);
 }
 
 

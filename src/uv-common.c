@@ -28,6 +28,12 @@
 #include <stdlib.h> /* malloc */
 #include <string.h> /* memset */
 
+/* EAI_* constants. */
+#if !defined(_WIN32)
+# include <sys/types.h>
+# include <sys/socket.h>
+# include <netdb.h>
+#endif
 
 #define XX(uc, lc) case UV_##uc: return sizeof(uv_##lc##_t);
 
@@ -438,4 +444,68 @@ void uv_stop(uv_loop_t* loop) {
 
 uint64_t uv_now(uv_loop_t* loop) {
   return loop->time;
+}
+
+
+int uv__getaddrinfo_translate_error(int sys_err) {
+  switch (sys_err) {
+  case 0: return 0;
+#if defined(EAI_ADDRFAMILY)
+  case EAI_ADDRFAMILY: return UV_EAI_ADDRFAMILY;
+#endif
+#if defined(EAI_AGAIN)
+  case EAI_AGAIN: return UV_EAI_AGAIN;
+#endif
+#if defined(EAI_BADFLAGS)
+  case EAI_BADFLAGS: return UV_EAI_BADFLAGS;
+#endif
+#if defined(EAI_CANCELED)
+  case EAI_CANCELED: return UV_EAI_CANCELED;
+#endif
+#if defined(EAI_FAIL)
+  case EAI_FAIL: return UV_EAI_FAIL;
+#endif
+#if defined(EAI_FAMILY)
+  case EAI_FAMILY: return UV_EAI_FAMILY;
+#endif
+#if defined(EAI_MEMORY)
+  case EAI_MEMORY: return UV_EAI_MEMORY;
+#endif
+#if defined(EAI_NODATA)
+  case EAI_NODATA: return UV_EAI_NODATA;
+#endif
+#if defined(EAI_NONAME) && (EAI_NONAME != EAI_NODATA)
+  case EAI_NONAME: return UV_EAI_NONAME;
+#endif
+#if defined(EAI_SERVICE)
+  case EAI_SERVICE: return UV_EAI_SERVICE;
+#endif
+#if defined(EAI_SOCKTYPE)
+  case EAI_SOCKTYPE: return UV_EAI_SOCKTYPE;
+#endif
+#if defined(EAI_SYSTEM)
+  case EAI_SYSTEM: return UV_EAI_SYSTEM;
+#endif
+  }
+  return UV_EAI_UNKNOWN;
+}
+
+
+const char* uv_getaddrinfo_strerror(int err) {
+  switch (err) {
+  case 0: return "no error";
+  case UV_EAI_ADDRFAMILY: return "address family not supported";
+  case UV_EAI_AGAIN: return "temporary failure";
+  case UV_EAI_BADFLAGS: return "bad ai_flags value";
+  case UV_EAI_CANCELED: return "request canceled";
+  case UV_EAI_FAIL: return "permanent failure";
+  case UV_EAI_FAMILY: return "ai_family not supported";
+  case UV_EAI_MEMORY: return "out of memory";
+  case UV_EAI_NODATA: return "no address";
+  case UV_EAI_NONAME: return "unknown node or service";
+  case UV_EAI_SERVICE: return "service not available for socket type";
+  case UV_EAI_SOCKTYPE: return "socket type not supported";
+  case UV_EAI_SYSTEM: return "system error";
+  }
+  return "unknown error";
 }
