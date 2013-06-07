@@ -113,7 +113,7 @@ void uv_process_getaddrinfo_req(uv_loop_t* loop, uv_getaddrinfo_t* req) {
       if (addrinfow_ptr->ai_canonname != NULL) {
         name_len = uv_utf16_to_utf8(addrinfow_ptr->ai_canonname, -1, NULL, 0);
         if (name_len == 0) {
-          uv__set_sys_error(loop, GetLastError());
+          /* FIXME(bnoordhuis) Retain GetLastError(). */
           err = UV_EAI_SYSTEM;
           goto complete;
         }
@@ -233,10 +233,11 @@ int uv_getaddrinfo(uv_loop_t* loop,
   int servicesize = 0;
   int hintssize = 0;
   char* alloc_ptr = NULL;
+  int err;
 
   if (req == NULL || getaddrinfo_cb == NULL ||
      (node == NULL && service == NULL)) {
-    uv__set_sys_error(loop, WSAEINVAL);
+    err = WSAEINVAL;
     goto error;
   }
 
@@ -251,7 +252,7 @@ int uv_getaddrinfo(uv_loop_t* loop,
   if (node != NULL) {
     nodesize = ALIGNED_SIZE(uv_utf8_to_utf16(node, NULL, 0) * sizeof(WCHAR));
     if (nodesize == 0) {
-      uv__set_sys_error(loop, GetLastError());
+      err = GetLastError();
       goto error;
     }
   }
@@ -260,7 +261,7 @@ int uv_getaddrinfo(uv_loop_t* loop,
     servicesize = ALIGNED_SIZE(uv_utf8_to_utf16(service, NULL, 0) *
                                sizeof(WCHAR));
     if (servicesize == 0) {
-      uv__set_sys_error(loop, GetLastError());
+      err = GetLastError();
       goto error;
     }
   }
@@ -271,7 +272,7 @@ int uv_getaddrinfo(uv_loop_t* loop,
   /* allocate memory for inputs, and partition it as needed */
   alloc_ptr = (char*)malloc(nodesize + servicesize + hintssize);
   if (!alloc_ptr) {
-    uv__set_sys_error(loop, WSAENOBUFS);
+    err = WSAENOBUFS;
     goto error;
   }
 
@@ -285,7 +286,7 @@ int uv_getaddrinfo(uv_loop_t* loop,
     if (uv_utf8_to_utf16(node,
                          (WCHAR*) alloc_ptr,
                          nodesize / sizeof(WCHAR)) == 0) {
-      uv__set_sys_error(loop, GetLastError());
+      err = GetLastError();
       goto error;
     }
     alloc_ptr += nodesize;
@@ -300,7 +301,7 @@ int uv_getaddrinfo(uv_loop_t* loop,
     if (uv_utf8_to_utf16(service,
                          (WCHAR*) alloc_ptr,
                          servicesize / sizeof(WCHAR)) == 0) {
-      uv__set_sys_error(loop, GetLastError());
+      err = GetLastError();
       goto error;
     }
     alloc_ptr += servicesize;
@@ -327,7 +328,7 @@ int uv_getaddrinfo(uv_loop_t* loop,
   if (QueueUserWorkItem(&getaddrinfo_thread_proc,
                         req,
                         WT_EXECUTELONGFUNCTION) == 0) {
-    uv__set_sys_error(loop, GetLastError());
+    err = GetLastError();
     goto error;
   }
 
@@ -339,5 +340,5 @@ error:
   if (req != NULL && req->alloc != NULL) {
     free(req->alloc);
   }
-  return -1;
+  return uv_translate_sys_error(err);
 }

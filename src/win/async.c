@@ -69,7 +69,7 @@ int uv_async_send(uv_async_t* handle) {
 
   if (handle->type != UV_ASYNC) {
     /* Can't set errno because that's not thread-safe. */
-    return -1;
+    return UV_EINVAL;
   }
 
   /* The user should make sure never to call uv_async_send to a closing */
