@@ -202,7 +202,7 @@ out:
 
   /* Force callback to run on next tick in case of error. */
   if (err)
-    uv__io_feed(handle->loop, &handle->io_watcher);
+    uv__io_feed(handle->loop, &handle->io_watcher, UV__POLLOUT);
 
   /* Mimic the Windows pipe implementation, always
    * return 0 and let the callback handle errors.

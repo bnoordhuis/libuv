@@ -128,7 +128,7 @@ int uv__tcp_connect(uv_connect_t* req,
   uv__io_start(handle->loop, &handle->io_watcher, UV__POLLOUT);
 
   if (handle->delayed_error)
-    uv__io_feed(handle->loop, &handle->io_watcher);
+    uv__io_feed(handle->loop, &handle->io_watcher, UV__POLLOUT);
 
   return 0;
 }

@@ -109,7 +109,6 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   unsigned int i;
   int saved_errno;
   int nevents;
-  int count;
   int fd;
 
   if (loop->nfds == 0) {
@@ -133,7 +132,6 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
   assert(timeout >= -1);
   base = loop->time;
-  count = 48; /* Benchmarks suggest this gives the best throughput. */
 
   for (;;) {
     if (timeout != -1) {
@@ -196,25 +194,16 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (w == NULL)
         continue;
 
-      w->cb(loop, w, pe->portev_events);
+      uv__io_feed(loop, w, pe->portev_events);
       nevents++;
 
-      if (w != loop->watchers[fd])
-        continue;  /* Disabled by callback. */
-
       /* Events Ports operates in oneshot mode, rearm timer on next run. */
-      if (w->pevents != 0 && QUEUE_EMPTY(&w->watcher_queue))
+      if (QUEUE_EMPTY(&w->watcher_queue))
         QUEUE_INSERT_TAIL(&loop->watcher_queue, &w->watcher_queue);
     }
 
-    if (nevents != 0) {
-      if (nfds == ARRAY_SIZE(events) && --count != 0) {
-        /* Poll for more events but don't block this time. */
-        timeout = 0;
-        continue;
-      }
+    if (nevents != 0)
       return;
-    }
 
     if (saved_errno == ETIME) {
       assert(timeout != -1);

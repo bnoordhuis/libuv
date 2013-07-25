@@ -60,7 +60,6 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   uv__io_t* w;
   int filter;
   int fflags;
-  int count;
   int nfds;
   int fd;
   int op;
@@ -119,7 +118,6 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
   assert(timeout >= -1);
   base = loop->time;
-  count = 48; /* Benchmarks suggest this gives the best throughput. */
 
   for (;; nevents = 0) {
     if (timeout != -1) {
@@ -223,18 +221,12 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (revents == 0)
         continue;
 
-      w->cb(loop, w, revents);
+      uv__io_feed(loop, w, revents);
       nevents++;
     }
 
-    if (nevents != 0) {
-      if (nfds == ARRAY_SIZE(events) && --count != 0) {
-        /* Poll for more events but don't block this time. */
-        timeout = 0;
-        continue;
-      }
+    if (nevents != 0)
       return;
-    }
 
     if (timeout == 0)
       return;

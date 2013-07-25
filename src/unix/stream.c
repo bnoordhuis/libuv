@@ -686,7 +686,7 @@ static void uv__write_req_finish(uv_write_t* req) {
    * callback called in the near future.
    */
   QUEUE_INSERT_TAIL(&stream->write_completed_queue, &req->queue);
-  uv__io_feed(stream->loop, &stream->io_watcher);
+  uv__io_feed(stream->loop, &stream->io_watcher, UV__POLLOUT);
 }
 
 
