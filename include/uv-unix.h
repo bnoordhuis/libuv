@@ -75,9 +75,10 @@ struct uv__io_s {
   uv__io_cb cb;
   void* pending_queue[2];
   void* watcher_queue[2];
-  unsigned int events;  /* Current event mask. */
-  unsigned int pevents; /* Pending event mask i.e. mask at next tick. */
-  unsigned int revents; /* Events reported by kernel. */
+  unsigned int events;   /* Current event mask. */
+  unsigned int levents;  /* Latched event mask, mask at next tick. */
+  unsigned int pevents;  /* Pending events, to be reported to callback. */
+  unsigned int revents;  /* Reported events (as in: by the kernel.) */
   int fd;
   UV_IO_PRIVATE_FIELDS
 };

@@ -111,8 +111,10 @@ static void uv__udp_run_pending(uv_udp_t* handle) {
     /* TODO try to write once or twice more in the
      * hope that the socket becomes readable again?
      */
-    if (size == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))
+    if (size == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      uv__io_mark(&handle->io_watcher, UV__POLLOUT);
       break;
+    }
 
     req->status = (size == -1 ? -errno : size);
 
@@ -222,8 +224,10 @@ static void uv__udp_recvmsg(uv_loop_t* loop,
     while (nread == -1 && errno == EINTR);
 
     if (nread == -1) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK)
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        uv__io_mark(&handle->io_watcher, UV__POLLIN);
         handle->recv_cb(handle, 0, buf, NULL, 0);
+      }
       else
         handle->recv_cb(handle, -errno, buf, NULL, 0);
     }

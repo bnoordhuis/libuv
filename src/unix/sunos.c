@@ -122,12 +122,12 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     QUEUE_INIT(q);
 
     w = QUEUE_DATA(q, uv__io_t, watcher_queue);
-    assert(w->pevents != 0);
+    assert(w->levents != 0);
 
-    if (port_associate(loop->backend_fd, PORT_SOURCE_FD, w->fd, w->pevents, 0))
+    if (port_associate(loop->backend_fd, PORT_SOURCE_FD, w->fd, w->levents, 0))
       abort();
 
-    w->events = w->pevents;
+    w->events = w->levents;
   }
 
   assert(timeout >= -1);

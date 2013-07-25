@@ -78,11 +78,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     QUEUE_INIT(q);
 
     w = QUEUE_DATA(q, uv__io_t, watcher_queue);
-    assert(w->pevents != 0);
+    assert(w->levents != 0);
     assert(w->fd >= 0);
     assert(w->fd < (int) loop->nwatchers);
 
-    if ((w->events & UV__POLLIN) == 0 && (w->pevents & UV__POLLIN) != 0) {
+    if ((w->events & UV__POLLIN) == 0 && (w->levents & UV__POLLIN) != 0) {
       filter = EVFILT_READ;
       fflags = 0;
       op = EV_ADD;
@@ -103,7 +103,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       }
     }
 
-    if ((w->events & UV__POLLOUT) == 0 && (w->pevents & UV__POLLOUT) != 0) {
+    if ((w->events & UV__POLLOUT) == 0 && (w->levents & UV__POLLOUT) != 0) {
       EV_SET(events + nevents, w->fd, EVFILT_WRITE, EV_ADD, 0, 0, 0);
 
       if (++nevents == ARRAY_SIZE(events)) {
@@ -113,7 +113,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       }
     }
 
-    w->events = w->pevents;
+    w->events = w->levents;
   }
 
   assert(timeout >= -1);
@@ -179,7 +179,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
       if (ev->filter == EVFILT_VNODE) {
         assert(w->events == UV__POLLIN);
-        assert(w->pevents == UV__POLLIN);
+        assert(w->levents == UV__POLLIN);
         w->cb(loop, w, ev->fflags); /* XXX always uv__fs_event() */
         nevents++;
         continue;

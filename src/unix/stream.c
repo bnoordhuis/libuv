@@ -517,16 +517,20 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 
     err = uv__accept(uv__stream_fd(stream));
     if (err < 0) {
-      if (err == -EAGAIN || err == -EWOULDBLOCK)
-        return;  /* Not an error. */
+      if (err == -EAGAIN || err == -EWOULDBLOCK) {
+        uv__io_mark(&stream->io_watcher, UV__POLLIN);
+        return;
+      }
 
       if (err == -ECONNABORTED)
         continue;  /* Ignore. Nothing we can do about that. */
 
       if (err == -EMFILE || err == -ENFILE) {
         err = uv__emfile_trick(loop, uv__stream_fd(stream));
-        if (err == -EAGAIN || err == -EWOULDBLOCK)
-          break;
+        if (err == -EAGAIN || err == -EWOULDBLOCK) {
+          uv__io_mark(&stream->io_watcher, UV__POLLIN);
+          return;
+        }
       }
 
       stream->connection_cb(stream, err);
@@ -800,6 +804,9 @@ start:
   }
 
   if (n < 0) {
+    if (stream->flags & UV_STREAM_BLOCKING)
+      goto start;
+
     if (errno != EAGAIN && errno != EWOULDBLOCK) {
       /* Error */
       req->error = -errno;
@@ -808,13 +815,12 @@ start:
       if (!uv__io_active(&stream->io_watcher, UV__POLLIN))
         uv__handle_stop(stream);
       return;
-    } else if (stream->flags & UV_STREAM_BLOCKING) {
-      /* If this is a blocking stream, try again. */
-      goto start;
     }
-  } else {
-    /* Successful write */
 
+    uv__io_mark(&stream->io_watcher, UV__POLLOUT);
+  }
+  else {
+    /* Successful write */
     while (n >= 0) {
       uv_buf_t* buf = &(req->bufs[req->write_index]);
       size_t len = buf->len;
@@ -822,46 +828,36 @@ start:
       assert(req->write_index < req->bufcnt);
 
       if ((size_t)n < len) {
+        stream->write_queue_size -= n;
         buf->base += n;
         buf->len -= n;
-        stream->write_queue_size -= n;
-        n = 0;
 
-        /* There is more to write. */
-        if (stream->flags & UV_STREAM_BLOCKING) {
-          /*
-           * If we're blocking then we should not be enabling the write
-           * watcher - instead we need to try again.
-           */
+        if (stream->flags & UV_STREAM_BLOCKING)
           goto start;
-        } else {
-          /* Break loop and ensure the watcher is pending. */
-          break;
-        }
 
-      } else {
-        /* Finished writing the buf at index req->write_index. */
-        req->write_index++;
+        /* Partial write. */
+        uv__io_mark(&stream->io_watcher, UV__POLLOUT);
+        break;
+      }
 
-        assert((size_t)n >= len);
-        n -= len;
+      /* Finished writing the buf at index req->write_index. */
+      req->write_index++;
 
-        assert(stream->write_queue_size >= len);
-        stream->write_queue_size -= len;
+      assert((size_t)n >= len);
+      n -= len;
 
-        if (req->write_index == req->bufcnt) {
-          /* Then we're done! */
-          assert(n == 0);
-          uv__write_req_finish(req);
-          /* TODO: start trying to write the next request. */
-          return;
-        }
+      assert(stream->write_queue_size >= len);
+      stream->write_queue_size -= len;
+
+      if (req->write_index == req->bufcnt) {
+        /* Then we're done! */
+        assert(n == 0);
+        uv__write_req_finish(req);
+        /* TODO: start trying to write the next request. */
+        return;
       }
     }
   }
-
-  /* Either we've counted n down to zero or we've got EAGAIN. */
-  assert(n == 0 || n == -1);
 
   /* Only non-blocking streams should use the write_watcher. */
   assert(!(stream->flags & UV_STREAM_BLOCKING));
@@ -1015,6 +1011,7 @@ static void uv__read(uv_stream_t* stream) {
     if (nread < 0) {
       /* Error */
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        uv__io_mark(&stream->io_watcher, UV__POLLIN);
         /* Wait for the next one. */
         if (stream->flags & UV_STREAM_READING) {
           uv__io_start(stream->loop, &stream->io_watcher, UV__POLLIN);
@@ -1079,6 +1076,7 @@ static void uv__read(uv_stream_t* stream) {
 
       /* Return if we didn't fill the buffer, there is no more data to read. */
       if (nread < buflen) {
+        uv__io_mark(&stream->io_watcher, UV__POLLIN);
         stream->flags |= UV_STREAM_READ_PARTIAL;
         return;
       }

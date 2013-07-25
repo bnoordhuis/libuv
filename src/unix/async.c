@@ -132,11 +132,15 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     if (r == sizeof(buf))
       continue;
 
-    if (r != -1)
+    if (r != -1) {
+      uv__io_mark(w, UV__POLLIN);
       break;
+    }
 
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      uv__io_mark(w, UV__POLLIN);
       break;
+    }
 
     if (errno == EINTR)
       continue;
@@ -186,9 +190,10 @@ void uv__async_send(struct uv__async* wa) {
   if (r == len)
     return;
 
-  if (r == -1)
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
-      return;
+  if (r == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+    uv__io_mark(&wa->io_watcher, UV__POLLOUT);
+    return;
+  }
 
   abort();
 }

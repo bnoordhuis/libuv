@@ -359,6 +359,7 @@ static void uv__signal_event(uv_loop_t* loop, uv__io_t* w, unsigned int events) 
         continue;
 
       /* Otherwise, there was nothing there. */
+      uv__io_mark(w, UV__POLLIN);
       return;
     }
 

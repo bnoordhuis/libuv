@@ -115,10 +115,10 @@ static struct watcher_list* find_watcher(uv_loop_t* loop, int wd) {
 
 
 static void uv__inotify_read(uv_loop_t* loop,
-                             uv__io_t* dummy,
+                             uv__io_t* w,
                              unsigned int events) {
   const struct uv__inotify_event* e;
-  struct watcher_list* w;
+  struct watcher_list* wd;
   uv_fs_event_t* h;
   QUEUE* q;
   const char* path;
@@ -134,6 +134,7 @@ static void uv__inotify_read(uv_loop_t* loop,
 
     if (size == -1) {
       assert(errno == EAGAIN || errno == EWOULDBLOCK);
+      uv__io_mark(w, UV__POLLIN);
       break;
     }
 
@@ -149,17 +150,17 @@ static void uv__inotify_read(uv_loop_t* loop,
       if (e->mask & ~(UV__IN_ATTRIB|UV__IN_MODIFY))
         events |= UV_RENAME;
 
-      w = find_watcher(loop, e->wd);
-      if (w == NULL)
+      wd = find_watcher(loop, e->wd);
+      if (wd == NULL)
         continue; /* Stale event, no watchers left. */
 
       /* inotify does not return the filename when monitoring a single file
        * for modifications. Repurpose the filename for API compatibility.
        * I'm not convinced this is a good thing, maybe it should go.
        */
-      path = e->len ? (const char*) (e + 1) : uv__basename_r(w->path);
+      path = e->len ? (const char*) (e + 1) : uv__basename_r(wd->path);
 
-      QUEUE_FOREACH(q, &w->watchers) {
+      QUEUE_FOREACH(q, &wd->watchers) {
         h = QUEUE_DATA(q, uv_fs_event_t, watchers);
         h->cb(h, path, events, 0);
       }

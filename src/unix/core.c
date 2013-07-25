@@ -296,7 +296,7 @@ static int uv__loop_alive(uv_loop_t* loop) {
 
 static void uv__run_pending(uv_loop_t* loop) {
   uv__io_t* w;
-  int revents;
+  int pevents;
   QUEUE* q;
 
   while (!QUEUE_EMPTY(&loop->pending_queue)) {
@@ -305,9 +305,9 @@ static void uv__run_pending(uv_loop_t* loop) {
     QUEUE_INIT(q);
 
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
-    revents = w->revents;
-    w->revents = 0;
-    w->cb(loop, w, revents);
+    pevents = w->pevents;
+    w->pevents = 0;
+    w->cb(loop, w, pevents);
   }
 }
 
@@ -655,15 +655,22 @@ void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd) {
   QUEUE_INIT(&w->pending_queue);
   QUEUE_INIT(&w->watcher_queue);
   w->cb = cb;
-  w->events = 0;
+  w->events = UV__POLLET;
+  w->levents = UV__POLLET;
   w->pevents = 0;
   w->revents = 0;
   w->fd = fd;
-
 #if defined(UV_HAVE_KQUEUE)
   w->rcount = 0;
   w->wcount = 0;
 #endif /* defined(UV_HAVE_KQUEUE) */
+}
+
+
+void uv__io_set_lt(uv__io_t* w) {
+  assert(w->events == UV__POLLET);  /* Should not have been started. */
+  w->events &= ~UV__POLLET;
+  w->levents &= ~UV__POLLET;
 }
 
 
@@ -673,7 +680,7 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   assert(w->fd >= 0);
   assert(w->fd < INT_MAX);
 
-  w->pevents |= events;
+  w->levents |= events;
   maybe_resize(loop, w->fd + 1);
 
 #if !defined(__sun)
@@ -681,8 +688,8 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
    * every tick of the event loop but the other backends allow us to
    * short-circuit here if the event mask is unchanged.
    */
-  if (w->events == w->pevents) {
-    if (w->events == 0 && !QUEUE_EMPTY(&w->watcher_queue)) {
+  if (w->events == w->levents) {
+    if ((w->events & ~UV__POLLET) == 0 && !QUEUE_EMPTY(&w->watcher_queue)) {
       QUEUE_REMOVE(&w->watcher_queue);
       QUEUE_INIT(&w->watcher_queue);
     }
@@ -713,9 +720,9 @@ void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   if ((unsigned) w->fd >= loop->nwatchers)
     return;
 
-  w->pevents &= ~events;
+  w->levents &= ~events;
 
-  if (w->pevents == 0) {
+  if ((w->levents & ~UV__POLLET) == 0) {
     QUEUE_REMOVE(&w->watcher_queue);
     QUEUE_INIT(&w->watcher_queue);
 
@@ -724,7 +731,7 @@ void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
       assert(loop->nfds > 0);
       loop->watchers[w->fd] = NULL;
       loop->nfds--;
-      w->events = 0;
+      w->events &= UV__POLLET;
     }
   }
   else if (QUEUE_EMPTY(&w->watcher_queue))
@@ -741,12 +748,12 @@ void uv__io_close(uv_loop_t* loop, uv__io_t* w) {
 void uv__io_feed(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   if (QUEUE_EMPTY(&w->pending_queue))
     QUEUE_INSERT_TAIL(&loop->pending_queue, &w->pending_queue);
-  w->revents |= events;
+  w->pevents |= events;
 }
 
 
 int uv__io_active(const uv__io_t* w, unsigned int events) {
   assert(0 == (events & ~(UV__POLLIN | UV__POLLOUT)));
   assert(0 != events);
-  return 0 != (w->pevents & events);
+  return 0 != (w->levents & events);
 }

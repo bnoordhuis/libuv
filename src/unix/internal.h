@@ -68,6 +68,7 @@
   while (0)
 
 #if defined(__linux__)
+# define UV__POLLET   UV__EPOLLET
 # define UV__POLLIN   UV__EPOLLIN
 # define UV__POLLOUT  UV__EPOLLOUT
 # define UV__POLLERR  UV__EPOLLERR
@@ -79,6 +80,10 @@
 # define UV__POLLOUT  POLLOUT
 # define UV__POLLERR  POLLERR
 # define UV__POLLHUP  POLLHUP
+#endif
+
+#ifndef UV__EPOLLET
+# define UV__EPOLLET  0
 #endif
 
 #ifndef UV__POLLIN
@@ -122,6 +127,7 @@ int uv__dup(int fd);
 void uv__make_close_pending(uv_handle_t* handle);
 
 void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd);
+void uv__io_set_lt(uv__io_t* w);  /* uv_poll_*(): set level-triggered mode. */
 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 void uv__io_close(uv_loop_t* loop, uv__io_t* w);
@@ -249,6 +255,15 @@ static void uv__req_init(uv_loop_t* loop, uv_req_t* req, uv_req_type type) {
 }
 #define uv__req_init(loop, req, type) \
   uv__req_init((loop), (uv_req_t*)(req), (type))
+
+__attribute__((unused))
+static void uv__io_mark(uv__io_t* w, unsigned int events) {
+  w->revents &= ~events;
+  if (w->revents == 0) {
+    QUEUE_REMOVE(&w->pending_queue);
+    QUEUE_INIT(&w->pending_queue);
+  }
+}
 
 __attribute__((unused))
 static void uv__update_time(uv_loop_t* loop) {

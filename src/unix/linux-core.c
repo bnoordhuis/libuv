@@ -111,6 +111,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   uv__io_t* w;
   uint64_t base;
   uint64_t diff;
+  unsigned int pevents;
   int nevents;
   int nfds;
   int fd;
@@ -128,33 +129,70 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     QUEUE_INIT(q);
 
     w = QUEUE_DATA(q, uv__io_t, watcher_queue);
-    assert(w->pevents != 0);
+    assert(w->levents != 0);
     assert(w->fd >= 0);
     assert(w->fd < (int) loop->nwatchers);
 
-    e.events = w->pevents;
-    e.data = w->fd;
-
-    if (w->events == 0)
-      op = UV__EPOLL_CTL_ADD;
-    else
+    op = UV__EPOLL_CTL_ADD;
+    if (w->events & ~UV__POLLET)
       op = UV__EPOLL_CTL_MOD;
 
-    /* XXX Future optimization: do EPOLL_CTL_MOD lazily if we stop watching
-     * events, skip the syscall and squelch the events after epoll_wait().
+    w->events = w->levents;
+
+    /* We don't have to update edge-triggered file descriptors, they're already
+     * being watched for both read and write readiness. Either one of two
+     * things happens here:
+     *
+     * 1. We're being asked to watch for read/write readiness and the kernel
+     *    has already reported that. When that happens, the watcher is added
+     *    to the ready list for dispatch in the near future.
+     *
+     * 2. We're being asked to stop watching for read/write readiness. Just
+     *    update the event mask and continue.
      */
-    if (uv__epoll_ctl(loop->backend_fd, op, w->fd, &e)) {
-      if (errno != EEXIST)
-        abort();
-
-      assert(op == UV__EPOLL_CTL_ADD);
-
-      /* We've reactivated a file descriptor that's been watched before. */
-      if (uv__epoll_ctl(loop->backend_fd, UV__EPOLL_CTL_MOD, w->fd, &e))
-        abort();
+    if (op == UV__EPOLL_CTL_MOD && (w->levents & UV__POLLET)) {
+      pevents = w->levents & w->revents;
+      if (pevents != 0) {
+        w->revents &= ~pevents;
+        uv__io_feed(loop, w, pevents);
+      }
+      continue;
     }
 
-    w->events = w->pevents;
+    /* Observation: most file descriptors will be watched for both reading and
+     * writing during their lifetime. That's why we register the fd for both
+     * right away because it saves a call to epoll_ctl(EPOLL_CTL_MOD) later on.
+     *
+     * The worst case with read-only or write-only file descriptors is  that
+     * epoll_wait() wakes up unnecessarily once. In the grand scheme of things,
+     * that's something we can live with because it won't happen often.
+     */
+    if (w->levents & UV__EPOLLET)
+      e.events = UV__EPOLLIN | UV__EPOLLOUT | UV__EPOLLET;
+    else
+      e.events = w->levents;
+
+    e.data = w->fd;
+
+    if (uv__epoll_ctl(loop->backend_fd, op, w->fd, &e) == 0)
+      continue;
+
+    if (errno != EEXIST)
+      abort();
+
+    /* We're reactivating a file descriptor that's been watched before.
+     * Level-triggered file descriptors we can just modify but edge-triggered
+     * file descriptors have to be removed and re-added because we don't know
+     * what their current state is.
+     */
+    assert(op == UV__EPOLL_CTL_ADD);
+    if ((w->events & UV__POLLET) == 0)
+      op = UV__EPOLL_CTL_MOD;
+    else if (uv__epoll_ctl(loop->backend_fd, UV__EPOLL_CTL_DEL, w->fd, &e))
+      abort();
+
+    if (uv__epoll_ctl(loop->backend_fd, op, w->fd, &e))
+      abort();
   }
 
   assert(timeout >= -1);
@@ -211,8 +249,16 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         continue;
       }
 
-      uv__io_feed(loop, w, pe->events);
-      nevents++;
+      w->revents |= pe->events;
+
+      /* In edge-triggered mode, we're always watching for read and write
+       * readiness. Mask off the events that the watcher is not interested in.
+       */
+      pevents = w->revents & (w->events | UV__EPOLLERR | UV__EPOLLHUP);
+      if (pevents != 0) {
+        uv__io_feed(loop, w, pevents);
+        nevents++;
+      }
     }
 
     if (nevents != 0)

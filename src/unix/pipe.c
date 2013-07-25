@@ -222,7 +222,9 @@ static void uv__pipe_accept(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 
   sockfd = uv__accept(uv__stream_fd(pipe));
   if (sockfd == -1) {
-    if (errno != EAGAIN && errno != EWOULDBLOCK)
+    if (errno == EAGAIN || errno == EWOULDBLOCK)
+      uv__io_mark(&pipe->io_watcher, UV__POLLIN);
+    else
       pipe->connection_cb((uv_stream_t*)pipe, -errno);
     return;
   }

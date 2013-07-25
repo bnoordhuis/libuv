@@ -29,7 +29,7 @@
 
 static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   uv_poll_t* handle;
-  int pevents;
+  int levents;
 
   handle = container_of(w, uv_poll_t, io_watcher);
 
@@ -40,19 +40,20 @@ static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     return;
   }
 
-  pevents = 0;
+  levents = 0;
   if (events & UV__POLLIN)
-    pevents |= UV_READABLE;
+    levents |= UV_READABLE;
   if (events & UV__POLLOUT)
-    pevents |= UV_WRITABLE;
+    levents |= UV_WRITABLE;
 
-  handle->poll_cb(handle, 0, pevents);
+  handle->poll_cb(handle, 0, levents);
 }
 
 
 int uv_poll_init(uv_loop_t* loop, uv_poll_t* handle, int fd) {
   uv__handle_init(loop, (uv_handle_t*) handle, UV_POLL);
   uv__io_init(&handle->io_watcher, uv__poll_io, fd);
+  uv__io_set_lt(&handle->io_watcher);  /* Level-triggered mode. */
   handle->poll_cb = NULL;
   return 0;
 }
@@ -77,21 +78,21 @@ int uv_poll_stop(uv_poll_t* handle) {
 }
 
 
-int uv_poll_start(uv_poll_t* handle, int pevents, uv_poll_cb poll_cb) {
+int uv_poll_start(uv_poll_t* handle, int levents, uv_poll_cb poll_cb) {
   int events;
 
-  assert((pevents & ~(UV_READABLE | UV_WRITABLE)) == 0);
+  assert((levents & ~(UV_READABLE | UV_WRITABLE)) == 0);
   assert(!(handle->flags & (UV_CLOSING | UV_CLOSED)));
 
   uv__poll_stop(handle);
 
-  if (pevents == 0)
+  if (levents == 0)
     return 0;
 
   events = 0;
-  if (pevents & UV_READABLE)
+  if (levents & UV_READABLE)
     events |= UV__POLLIN;
-  if (pevents & UV_WRITABLE)
+  if (levents & UV_WRITABLE)
     events |= UV__POLLOUT;
 
   uv__io_start(handle->loop, &handle->io_watcher, events);
