@@ -268,7 +268,7 @@ static void uv__udp_sendmsg(uv_loop_t* loop,
 
   if (!QUEUE_EMPTY(&handle->write_completed_queue)) {
     /* Schedule completion callbacks. */
-    uv__io_feed(handle->loop, &handle->io_watcher);
+    uv__io_feed(handle->loop, &handle->io_watcher, UV__POLLOUT);
   }
   else if (QUEUE_EMPTY(&handle->write_queue)) {
     /* Pending queue and completion queue empty, stop watcher. */

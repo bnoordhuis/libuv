@@ -60,8 +60,6 @@
 # include <sys/wait.h>
 #endif
 
-static void uv__run_pending(uv_loop_t* loop);
-
 static uv_loop_t default_loop_struct;
 static uv_loop_t* default_loop_ptr;
 
@@ -296,6 +294,25 @@ static int uv__loop_alive(uv_loop_t* loop) {
 }
 
 
+static void uv__run_pending(uv_loop_t* loop) {
+  uv__io_t* w;
+  int revents;
+  QUEUE* q;
+
+  while (!QUEUE_EMPTY(&loop->pending_queue)) {
+    q = QUEUE_HEAD(&loop->pending_queue);
+    QUEUE_REMOVE(q);
+    QUEUE_INIT(q);
+
+    w = QUEUE_DATA(q, uv__io_t, pending_queue);
+    revents = w->revents;
+    w->revents = 0;
+    w->cb(loop, w, revents);
+  }
+}
+
+
+
 int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   int timeout;
   int r;
@@ -315,6 +332,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
       timeout = uv_backend_timeout(loop);
 
     uv__io_poll(loop, timeout);
+    uv__run_pending(loop);
+
     uv__run_check(loop);
     uv__run_closing_handles(loop);
 
@@ -597,21 +616,6 @@ void uv_disable_stdio_inheritance(void) {
 }
 
 
-static void uv__run_pending(uv_loop_t* loop) {
-  QUEUE* q;
-  uv__io_t* w;
-
-  while (!QUEUE_EMPTY(&loop->pending_queue)) {
-    q = QUEUE_HEAD(&loop->pending_queue);
-    QUEUE_REMOVE(q);
-    QUEUE_INIT(q);
-
-    w = QUEUE_DATA(q, uv__io_t, pending_queue);
-    w->cb(loop, w, UV__POLLOUT);
-  }
-}
-
-
 static unsigned int next_power_of_two(unsigned int val) {
   val -= 1;
   val |= val >> 1;
@@ -651,9 +655,10 @@ void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd) {
   QUEUE_INIT(&w->pending_queue);
   QUEUE_INIT(&w->watcher_queue);
   w->cb = cb;
-  w->fd = fd;
   w->events = 0;
   w->pevents = 0;
+  w->revents = 0;
+  w->fd = fd;
 
 #if defined(UV_HAVE_KQUEUE)
   w->rcount = 0;
@@ -733,9 +738,10 @@ void uv__io_close(uv_loop_t* loop, uv__io_t* w) {
 }
 
 
-void uv__io_feed(uv_loop_t* loop, uv__io_t* w) {
+void uv__io_feed(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   if (QUEUE_EMPTY(&w->pending_queue))
     QUEUE_INSERT_TAIL(&loop->pending_queue, &w->pending_queue);
+  w->revents |= events;
 }
 
 

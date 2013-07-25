@@ -75,8 +75,9 @@ struct uv__io_s {
   uv__io_cb cb;
   void* pending_queue[2];
   void* watcher_queue[2];
-  unsigned int pevents; /* Pending event mask i.e. mask at next tick. */
   unsigned int events;  /* Current event mask. */
+  unsigned int pevents; /* Pending event mask i.e. mask at next tick. */
+  unsigned int revents; /* Events reported by kernel. */
   int fd;
   UV_IO_PRIVATE_FIELDS
 };

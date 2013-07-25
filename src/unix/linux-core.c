@@ -112,7 +112,6 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   uint64_t base;
   uint64_t diff;
   int nevents;
-  int count;
   int nfds;
   int fd;
   int op;
@@ -160,7 +159,6 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
   assert(timeout >= -1);
   base = loop->time;
-  count = 48; /* Benchmarks suggest this gives the best throughput. */
 
   for (;;) {
     nfds = uv__epoll_wait(loop->backend_fd,
@@ -203,7 +201,6 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       assert((unsigned) fd < loop->nwatchers);
 
       w = loop->watchers[fd];
-
       if (w == NULL) {
         /* File descriptor that we've stopped watching, disarm it.
          *
@@ -214,18 +211,12 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         continue;
       }
 
-      w->cb(loop, w, pe->events);
+      uv__io_feed(loop, w, pe->events);
       nevents++;
     }
 
-    if (nevents != 0) {
-      if (nfds == ARRAY_SIZE(events) && --count != 0) {
-        /* Poll for more events but don't block this time. */
-        timeout = 0;
-        continue;
-      }
+    if (nevents != 0)
       return;
-    }
 
     if (timeout == 0)
       return;
