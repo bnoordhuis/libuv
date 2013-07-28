@@ -152,10 +152,8 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
      */
     if (op == UV__EPOLL_CTL_MOD && (w->levents & UV__POLLET)) {
       pevents = w->levents & w->revents;
-      if (pevents != 0) {
-        w->revents &= ~pevents;
+      if (pevents != 0)
         uv__io_feed(loop, w, pevents);
-      }
       continue;
     }
 
