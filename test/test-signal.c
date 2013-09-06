@@ -20,7 +20,7 @@
  */
 
 
-/* This test does not pretend to be cross-platform. */
+/* These tests don't pretend to be cross-platform. */
 #ifndef _WIN32
 
 #include "uv.h"
@@ -144,6 +144,45 @@ TEST_IMPL(we_get_signals) {
 
   for (i = 0; i < ARRAY_SIZE(tc); i++)
     ASSERT(tc[i].ncalls == NSIGNALS);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
+static volatile sig_atomic_t signal_handler_called;
+static unsigned int signal_handle_cb_called;
+
+
+static void signal_handler(int signo) {
+  ASSERT(signal_handler_called == 0);
+  ASSERT(signo == SIGUSR1);
+  ++signal_handler_called;
+}
+
+
+static void signal_handle_cb(uv_signal_t* handle, int signo) {
+  ASSERT(signal_handle_cb_called == 0);
+  ASSERT(signo == SIGUSR1);
+  uv_close((uv_handle_t*) handle, NULL);
+  ++signal_handle_cb_called;
+}
+
+
+/* Libuv should chain signal handlers, not override them. */
+TEST_IMPL(signal_handler_chaining) {
+  uv_signal_t signal_handle;
+  struct sigaction sa;
+
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = signal_handler;
+  ASSERT(0 == sigaction(SIGUSR1, &sa, NULL));
+  ASSERT(0 == uv_signal_init(uv_default_loop(), &signal_handle));
+  ASSERT(0 == uv_signal_start(&signal_handle, signal_handle_cb, SIGUSR1));
+  ASSERT(0 == kill(getpid(), SIGUSR1));
+  ASSERT(0 == uv_run(uv_default_loop(), UV_RUN_DEFAULT));
+  ASSERT(1 == signal_handler_called);
+  ASSERT(1 == signal_handle_cb_called);
 
   MAKE_VALGRIND_HAPPY();
   return 0;
