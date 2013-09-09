@@ -962,43 +962,52 @@ TEST_IMPL(spawn_auto_unref) {
 #if !defined(_WIN32)
 TEST_IMPL(spawn_dup_fd) {
   static char* args[] = {
-    "/bin/sh", "-c", "echo 1 ; echo 2 1>&2", NULL
+    "/bin/sh", "-c", "echo 1 >&1 ; echo 2 >&2; echo 3 >&3 ; echo 4 >&4", NULL
   };
   uv_process_options_t options;
   uv_process_t process_handle;
-  uv_stdio_container_t stdio;
+  uv_stdio_container_t stdio[5];
   int fildes[2];
   char buf[256];
   ssize_t nread;
+  unsigned int i;
+
+  /* GDB doesn't close open file descriptors. Close them now. */
+  close(3);
+  close(4);
 
   ASSERT(0 == pipe(fildes));
+  ASSERT(3 == fildes[0]);
+  ASSERT(4 == fildes[1]);
 
   memset(&stdio, 0, sizeof(stdio));
-  stdio.flags = UV_INHERIT_FD;
-  stdio.data.fd = fildes[1];
+  for (i = 1; i < ARRAY_SIZE(stdio); i++) {
+    stdio[i].flags = UV_INHERIT_FD;
+    stdio[i].data.fd = fildes[1];
+  }
+  stdio[0].flags = UV_IGNORE;
 
   memset(&options, 0, sizeof(options));
   options.args = args;
   options.file = args[0];
   options.exit_cb = no_err_exit_cb;
-  options.stdio = &stdio;
-  options.stdio_count = 1;
+  options.stdio = stdio;
+  options.stdio_count = ARRAY_SIZE(stdio);
 
   ASSERT(0 == uv_spawn(uv_default_loop(), &process_handle, &options));
   ASSERT(0 == uv_run(uv_default_loop(), UV_RUN_DEFAULT));
   ASSERT(1 == exit_cb_called);
   ASSERT(1 == close_cb_called);
 
-  memset(buf, 0, sizeof(buf));
   do
-    nread = read(fildes[0], buf, sizeof(buf));
+    nread = read(fildes[0], buf + i, sizeof(buf) - i);
   while (nread == -1 && errno == EINTR);
 
   close(fildes[0]);
   close(fildes[1]);
 
-  ASSERT(4 == nread);
-  ASSERT(0 == strncmp(buf, "1\n2\n", nread));
+  ASSERT(8 == nread);
+  ASSERT(0 == strncmp(buf, "1\n2\n3\n4\n", nread));
 
   MAKE_VALGRIND_HAPPY();
   return 0;

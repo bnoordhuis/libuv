@@ -272,15 +272,65 @@ static void uv__write_int(int fd, int val) {
 
 static void uv__process_child_init(const uv_process_options_t* options,
                                    int stdio_count,
-                                   int (*pipes)[2],
+                                   int (*filedes)[2],
                                    int error_fd) {
-  int close_fd;
-  int use_fd;
+  int flags;
+  int null_fd;
   int fd;
+  int rc;
 
   if (options->flags & UV_PROCESS_DETACHED)
     setsid();
 
+  /* Close the read ends of pipes first. Not all entries refer to pipes,
+   * just the ones where filedes[fd][0] != -1, the other entries are
+   * single file descriptors that the process should inherit.
+   * */
+  for (fd = 0; fd < stdio_count; fd++)
+    if (filedes[fd][0] != -1)
+      close(filedes[fd][0]);
+
+  /* Redirect fds 0-2 to /dev/null before doing anything else, unless the
+   * caller indicated that the file descriptor should be inherited as-is.
+   */
+  for (fd = 0; fd < 3 && fd < stdio_count; fd++) {
+    if (fd == filedes[fd][1])
+      continue;
+
+    flags = O_RDWR;
+    if (fd == 0)
+      flags = O_RDONLY;
+
+    close(fd);
+    do
+      null_fd = open("/dev/null", flags);
+    while (null_fd == -1 && errno == EINTR);
+
+    if (null_fd == -1) {
+      uv__write_int(error_fd, -errno);
+      _exit(127);
+    }
+
+    assert(fd == null_fd);
+  }
+
+  for (fd = 0; fd < stdio_count; fd++) {
+    if (fd != filedes[fd][1])
+      continue;
+  }
+
+  if (stdio_count > 0 && filedes[0][0] != -1) {
+    do
+      rc = dup2(filedes[0][0], 0);
+    while (rc == -1 && errno == EINTR);
+
+    if (rc == -1) {
+      uv__write_int(error_fd, -errno);
+      _exit(127);
+    }
+  }
+
+#if 0
   for (fd = 0; fd < stdio_count; fd++) {
     close_fd = pipes[fd][0];
     use_fd = pipes[fd][1];
@@ -321,6 +371,7 @@ static void uv__process_child_init(const uv_process_options_t* options,
     if (fd != use_fd)
       close(use_fd);
   }
+#endif
 
   if (options->cwd != NULL && chdir(options->cwd)) {
     uv__write_int(error_fd, -errno);
@@ -355,7 +406,7 @@ int uv_spawn(uv_loop_t* loop,
              uv_process_t* process,
              const uv_process_options_t* options) {
   int signal_pipe[2] = { -1, -1 };
-  int (*pipes)[2];
+  int (*filedes)[2];
   int stdio_count;
   QUEUE* q;
   ssize_t r;
@@ -378,17 +429,17 @@ int uv_spawn(uv_loop_t* loop,
     stdio_count = 3;
 
   err = -ENOMEM;
-  pipes = malloc(stdio_count * sizeof(*pipes));
-  if (pipes == NULL)
+  filedes = malloc(stdio_count * sizeof(*filedes));
+  if (filedes == NULL)
     goto error;
 
   for (i = 0; i < stdio_count; i++) {
-    pipes[i][0] = -1;
-    pipes[i][1] = -1;
+    filedes[i][0] = -1;
+    filedes[i][1] = -1;
   }
 
   for (i = 0; i < options->stdio_count; i++) {
-    err = uv__process_init_stdio(options->stdio + i, pipes[i]);
+    err = uv__process_init_stdio(options->stdio + i, filedes[i]);
     if (err)
       goto error;
   }
@@ -429,7 +480,7 @@ int uv_spawn(uv_loop_t* loop,
   }
 
   if (pid == 0) {
-    uv__process_child_init(options, stdio_count, pipes, signal_pipe[1]);
+    uv__process_child_init(options, stdio_count, filedes, signal_pipe[1]);
     abort();
   }
 
@@ -452,7 +503,7 @@ int uv_spawn(uv_loop_t* loop,
   close(signal_pipe[0]);
 
   for (i = 0; i < options->stdio_count; i++) {
-    err = uv__process_open_stream(options->stdio + i, pipes[i], i == 0);
+    err = uv__process_open_stream(options->stdio + i, filedes[i], i == 0);
     if (err == 0)
       continue;
 
@@ -469,15 +520,15 @@ int uv_spawn(uv_loop_t* loop,
   process->exit_cb = options->exit_cb;
   uv__handle_start(process);
 
-  free(pipes);
+  free(filedes);
   return 0;
 
 error:
   for (i = 0; i < stdio_count; i++) {
-    close(pipes[i][0]);
-    close(pipes[i][1]);
+    close(filedes[i][0]);
+    close(filedes[i][1]);
   }
-  free(pipes);
+  free(filedes);
 
   return err;
 }
