@@ -285,8 +285,10 @@ static void uv__process_child_init(const uv_process_options_t* options,
     close_fd = pipes[fd][0];
     use_fd = pipes[fd][1];
 
-    if (use_fd >= 0)
-      close(close_fd);
+    if (use_fd >= 0) {
+      if (close_fd != -1)
+        close(close_fd);
+    }
     else if (fd >= 3)
       continue;
     else {
@@ -304,13 +306,20 @@ static void uv__process_child_init(const uv_process_options_t* options,
 
     if (fd == use_fd)
       uv__cloexec(use_fd, 0);
-    else {
+    else
       dup2(use_fd, fd);
-      close(use_fd);
-    }
 
     if (fd <= 2)
       uv__nonblock(fd, 0);
+  }
+
+  for (fd = 0; fd < stdio_count; fd++) {
+    if (fd >= 3)
+      break;
+
+    use_fd = pipes[fd][1];
+    if (fd != use_fd)
+      close(use_fd);
   }
 
   if (options->cwd != NULL && chdir(options->cwd)) {

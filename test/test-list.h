@@ -224,6 +224,7 @@ TEST_DECLARE   (listen_no_simultaneous_accepts)
 TEST_DECLARE   (fs_stat_root)
 #else
 TEST_DECLARE   (spawn_setuid_setgid)
+TEST_DECLARE   (spawn_dup_fd)
 TEST_DECLARE   (we_get_signal)
 TEST_DECLARE   (we_get_signals)
 TEST_DECLARE   (signal_multiple_loops)
@@ -452,6 +453,7 @@ TASK_LIST_START
   TEST_ENTRY  (fs_stat_root)
 #else
   TEST_ENTRY  (spawn_setuid_setgid)
+  TEST_ENTRY  (spawn_dup_fd)
   TEST_ENTRY  (we_get_signal)
   TEST_ENTRY  (we_get_signals)
   TEST_ENTRY  (signal_multiple_loops)

@@ -21,6 +21,8 @@
 
 #include "uv.h"
 #include "task.h"
+
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,15 +49,23 @@ static int output_used;
 
 
 static void close_cb(uv_handle_t* handle) {
-  printf("close_cb\n");
   close_cb_called++;
+}
+
+
+static void no_err_exit_cb(uv_process_t* process,
+                           int64_t exit_status,
+                           int term_signal) {
+  exit_cb_called++;
+  ASSERT(exit_status == 0);
+  ASSERT(term_signal == 0);
+  uv_close((uv_handle_t*) process, close_cb);
 }
 
 
 static void exit_cb(uv_process_t* process,
                     int64_t exit_status,
                     int term_signal) {
-  printf("exit_cb\n");
   exit_cb_called++;
   ASSERT(exit_status == 1);
   ASSERT(term_signal == 0);
@@ -67,7 +77,6 @@ static void expect(uv_process_t* process,
                    int64_t exit_status,
                    int term_signal,
                    int err) {
-  printf("exit_cb\n");
   exit_cb_called++;
   ASSERT(exit_status == err);
   ASSERT(term_signal == 0);
@@ -94,7 +103,6 @@ static void kill_cb(uv_process_t* process,
                     int term_signal) {
   int err;
 
-  printf("exit_cb\n");
   exit_cb_called++;
 #ifdef _WIN32
   ASSERT(exit_status == 1);
@@ -114,7 +122,6 @@ static void kill_cb(uv_process_t* process,
 }
 
 static void detach_failure_cb(uv_process_t* process, int64_t exit_status, int term_signal) {
-  printf("detach_cb\n");
   exit_cb_called++;
 }
 
@@ -950,3 +957,50 @@ TEST_IMPL(spawn_auto_unref) {
   MAKE_VALGRIND_HAPPY();
   return 0;
 }
+
+
+#if !defined(_WIN32)
+TEST_IMPL(spawn_dup_fd) {
+  static char* args[] = {
+    "/bin/sh", "-c", "echo 1 ; echo 2 1>&2", NULL
+  };
+  uv_process_options_t options;
+  uv_process_t process_handle;
+  uv_stdio_container_t stdio;
+  int fildes[2];
+  char buf[256];
+  ssize_t nread;
+
+  ASSERT(0 == pipe(fildes));
+
+  memset(&stdio, 0, sizeof(stdio));
+  stdio.flags = UV_INHERIT_FD;
+  stdio.data.fd = fildes[1];
+
+  memset(&options, 0, sizeof(options));
+  options.args = args;
+  options.file = args[0];
+  options.exit_cb = no_err_exit_cb;
+  options.stdio = &stdio;
+  options.stdio_count = 1;
+
+  ASSERT(0 == uv_spawn(uv_default_loop(), &process_handle, &options));
+  ASSERT(0 == uv_run(uv_default_loop(), UV_RUN_DEFAULT));
+  ASSERT(1 == exit_cb_called);
+  ASSERT(1 == close_cb_called);
+
+  memset(buf, 0, sizeof(buf));
+  do
+    nread = read(fildes[0], buf, sizeof(buf));
+  while (nread == -1 && errno == EINTR);
+
+  close(fildes[0]);
+  close(fildes[1]);
+
+  ASSERT(4 == nread);
+  ASSERT(0 == strncmp(buf, "1\n2\n", nread));
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+#endif
