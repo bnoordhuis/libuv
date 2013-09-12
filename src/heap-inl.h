@@ -16,7 +16,6 @@
 #ifndef UV_SRC_HEAP_H_
 #define UV_SRC_HEAP_H_
 
-#include <assert.h>
 #include <stddef.h>  /* NULL */
 
 #if defined(__GNUC__)
@@ -76,16 +75,11 @@ static void heap_node_swap(struct heap* heap,
   struct heap_node* left;
   struct heap_node* right;
 
-  assert(parent == child->parent);
-  assert(parent->left == child || parent->right == child);
-
   if (parent->parent == NULL) {
-    assert(heap->min == parent);
     heap->min = child;
   } else if (parent->parent->left == parent) {
     parent->parent->left = child;
   } else {
-    assert(parent->parent->right == parent);
     parent->parent->right = child;
   }
 
@@ -99,14 +93,11 @@ static void heap_node_swap(struct heap* heap,
   if (child->left == child) {
     child->left = parent;
     if (child->right != NULL) {
-      assert(child->right->parent == parent);
       child->right->parent = child;
     }
   } else {
-    assert(child->right == child);
     child->right = parent;
     if (child->left != NULL) {
-      assert(child->left->parent == parent);
       child->left->parent = child;
     }
   }
@@ -116,12 +107,10 @@ static void heap_node_swap(struct heap* heap,
   parent->right = right;
 
   if (parent->left != NULL) {
-    assert(parent->left->parent == child);
     parent->left->parent = parent;
   }
 
   if (parent->right != NULL) {
-    assert(parent->right->parent == child);
     parent->right->parent = parent;
   }
 }
@@ -201,19 +190,11 @@ HEAP_EXPORT(void heap_remove(struct heap* heap,
 
   /* Unlink the max node. */
   child = *max;
-  assert(child->left == NULL);
-  assert(child->right == NULL);
-  assert(child->parent == NULL ||
-         child->parent->left == child ||
-         child->parent->right == child);
   *max = NULL;
 
   if (child == node) {
     /* We're removing either the max or the last node in the tree. */
     if (child == heap->min) {
-      assert(node->parent == NULL);
-      assert(heap->min == NULL);
-      assert(heap->nelts == 0);
       heap->min = NULL;
     }
     return;
@@ -233,12 +214,10 @@ HEAP_EXPORT(void heap_remove(struct heap* heap,
   }
 
   if (node->parent == NULL) {
-    assert(heap->min == node);
     heap->min = child;
   } else if (node->parent->left == node) {
     node->parent->left = child;
   } else {
-    assert(node->parent->right == node);
     node->parent->right = child;
   }
 
