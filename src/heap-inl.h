@@ -72,47 +72,35 @@ HEAP_EXPORT(struct heap_node* heap_min(const struct heap* heap)) {
 static void heap_node_swap(struct heap* heap,
                            struct heap_node* parent,
                            struct heap_node* child) {
-  struct heap_node* left;
-  struct heap_node* right;
+  struct heap_node* sibling;
+  struct heap_node t;
 
-  if (parent->parent == NULL) {
-    heap->min = child;
-  } else if (parent->parent->left == parent) {
-    parent->parent->left = child;
-  } else {
-    parent->parent->right = child;
-  }
-
-  left = child->left;
-  right = child->right;
-
-  child->parent = parent->parent;
-  child->left = parent->left;
-  child->right = parent->right;
-
-  if (child->left == child) {
-    child->left = parent;
-    if (child->right != NULL) {
-      child->right->parent = child;
-    }
-  } else {
-    child->right = parent;
-    if (child->left != NULL) {
-      child->left->parent = child;
-    }
-  }
+  t = *parent;
+  *parent = *child;
+  *child = t;
 
   parent->parent = child;
-  parent->left = left;
-  parent->right = right;
+  if (child->left == child) {
+    child->left = parent;
+    sibling = child->right;
+  } else {
+    child->right = parent;
+    sibling = child->left;
+  }
+  if (sibling != NULL)
+    sibling->parent = child;
 
-  if (parent->left != NULL) {
+  if (parent->left != NULL)
     parent->left->parent = parent;
-  }
-
-  if (parent->right != NULL) {
+  if (parent->right != NULL)
     parent->right->parent = parent;
-  }
+
+  if (child->parent == NULL)
+    heap->min = child;
+  else if (child->parent->left == parent)
+    child->parent->left = child;
+  else
+    child->parent->right = child;
 }
 
 HEAP_EXPORT(void heap_insert(struct heap* heap,
@@ -137,12 +125,14 @@ HEAP_EXPORT(void heap_insert(struct heap* heap,
 
   /* Now traverse the heap using the path we calculated in the previous step. */
   parent = child = &heap->min;
-  for (n = 0; n < k; n += 1) {
+  while (k > 0) {
     parent = child;
-    if (path & (1 << n))
+    if (path & 1)
       child = &(*child)->right;
     else
       child = &(*child)->left;
+    path >>= 1;
+    k -= 1;
   }
 
   /* Insert the new node. */
@@ -179,11 +169,13 @@ HEAP_EXPORT(void heap_remove(struct heap* heap,
 
   /* Now traverse the heap using the path we calculated in the previous step. */
   max = &heap->min;
-  for (n = 0; n < k; n += 1) {
-    if (path & (1 << n))
+  while (k > 0) {
+    if (path & 1)
       max = &(*max)->right;
     else
       max = &(*max)->left;
+    path >>= 1;
+    k -= 1;
   }
 
   heap->nelts -= 1;
