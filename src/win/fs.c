@@ -1060,6 +1060,43 @@ static void fs__fdatasync(uv_fs_t* req) {
 }
 
 
+static void fs__truncate(uv_fs_t* req) {
+  HANDLE handle;
+  NTSTATUS status;
+  IO_STATUS_BLOCK io_status;
+  FILE_END_OF_FILE_INFORMATION eof_info;
+
+  eof_info.EndOfFile.QuadPart = req->offset;
+
+  handle = CreateFileW(req->pathw,
+                       FILE_GENERIC_WRITE,
+                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                       NULL,
+                       OPEN_EXISTING,
+                       FILE_ATTRIBUTE_NORMAL,
+                       NULL);
+
+  if (handle == INVALID_HANDLE_VALUE) {
+    SET_REQ_WIN32_ERROR(req, GetLastError());
+    return;
+  }
+
+  status = pNtSetInformationFile(handle,
+                                 &io_status,
+                                 &eof_info,
+                                 sizeof(eof_info),
+                                 FileEndOfFileInformation);
+
+  if (NT_SUCCESS(status)) {
+    SET_REQ_RESULT(req, 0);
+  } else {
+    SET_REQ_WIN32_ERROR(req, pRtlNtStatusToDosError(status));
+  }
+
+  CloseHandle(handle);
+}
+
+
 static void fs__ftruncate(uv_fs_t* req) {
   int fd = req->fd;
   HANDLE handle;
@@ -1507,6 +1544,7 @@ static DWORD WINAPI uv_fs_thread_proc(void* parameter) {
     XX(STAT, stat)
     XX(LSTAT, lstat)
     XX(FSTAT, fstat)
+    XX(TRUNCATE, truncate)
     XX(FTRUNCATE, ftruncate)
     XX(UTIME, utime)
     XX(FUTIME, futime)
@@ -1894,6 +1932,27 @@ int uv_fs_fdatasync(uv_loop_t* loop, uv_fs_t* req, uv_file fd, uv_fs_cb cb) {
     return 0;
   } else {
     fs__fdatasync(req);
+    return req->result;
+  }
+}
+
+
+int uv_fs_truncate(uv_loop_t* loop, uv_fs_t* req, const char* path,
+    int64_t off, uv_fs_cb cb) {
+  int err;
+
+  uv_fs_req_init(loop, req, UV_FS_TRUNCATE, cb);
+
+  err = fs__capture_path(loop, req, path, NULL, cb != NULL);
+  if (err) {
+    return uv_translate_sys_error(err);
+  }
+
+  if (cb) {
+    QUEUE_FS_TP_JOB(loop, req);
+    return 0;
+  } else {
+    fs__truncate(req);
     return req->result;
   }
 }

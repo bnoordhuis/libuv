@@ -624,6 +624,7 @@ static void uv__fs_work(struct uv__work* w) {
     X(FDATASYNC, uv__fs_fdatasync(req));
     X(FSTAT, uv__fs_fstat(req->file, &req->statbuf));
     X(FSYNC, fsync(req->file));
+    X(TRUNCATE, truncate(req->path, req->off));
     X(FTRUNCATE, ftruncate(req->file, req->off));
     X(FUTIME, uv__fs_futime(req));
     X(LSTAT, uv__fs_lstat(req->path, &req->statbuf));
@@ -753,6 +754,18 @@ int uv_fs_fstat(uv_loop_t* loop, uv_fs_t* req, uv_file file, uv_fs_cb cb) {
 int uv_fs_fsync(uv_loop_t* loop, uv_fs_t* req, uv_file file, uv_fs_cb cb) {
   INIT(FSYNC);
   req->file = file;
+  POST;
+}
+
+
+int uv_fs_truncate(uv_loop_t* loop,
+                   uv_fs_t* req,
+                   const char* path,
+                   int64_t off,
+                   uv_fs_cb cb) {
+  INIT(TRUNCATE);
+  PATH;
+  req->off = off;
   POST;
 }
 

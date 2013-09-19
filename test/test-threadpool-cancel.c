@@ -228,7 +228,7 @@ TEST_IMPL(threadpool_cancel_work) {
 
 TEST_IMPL(threadpool_cancel_fs) {
   struct cancel_info ci;
-  uv_fs_t reqs[25];
+  uv_fs_t reqs[26];
   uv_loop_t* loop;
   unsigned n;
 
@@ -246,6 +246,7 @@ TEST_IMPL(threadpool_cancel_fs) {
   ASSERT(0 == uv_fs_fdatasync(loop, reqs + n++, 0, fs_cb));
   ASSERT(0 == uv_fs_fstat(loop, reqs + n++, 0, fs_cb));
   ASSERT(0 == uv_fs_fsync(loop, reqs + n++, 0, fs_cb));
+  ASSERT(0 == uv_fs_truncate(loop, reqs + n++, "/", 0, fs_cb));
   ASSERT(0 == uv_fs_ftruncate(loop, reqs + n++, 0, 0, fs_cb));
   ASSERT(0 == uv_fs_futime(loop, reqs + n++, 0, 0, 0, fs_cb));
   ASSERT(0 == uv_fs_link(loop, reqs + n++, "/", "/", fs_cb));

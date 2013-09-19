@@ -67,6 +67,7 @@ static int stat_cb_count;
 static int rename_cb_count;
 static int fsync_cb_count;
 static int fdatasync_cb_count;
+static int truncate_cb_count;
 static int ftruncate_cb_count;
 static int sendfile_cb_count;
 static int fstat_cb_count;
@@ -95,6 +96,7 @@ static uv_fs_t stat_req;
 static uv_fs_t rename_req;
 static uv_fs_t fsync_req;
 static uv_fs_t fdatasync_req;
+static uv_fs_t truncate_req;
 static uv_fs_t ftruncate_req;
 static uv_fs_t sendfile_req;
 static uv_fs_t utime_req;
@@ -240,6 +242,18 @@ static void close_cb(uv_fs_t* req) {
 }
 
 
+static void truncate_cb(uv_fs_t* req) {
+  int r;
+  ASSERT(req == &truncate_req);
+  ASSERT(req->fs_type == UV_FS_TRUNCATE);
+  ASSERT(req->result == 0);
+  truncate_cb_count++;
+  uv_fs_req_cleanup(req);
+  r = uv_fs_close(loop, &close_req, open_req1.result, close_cb);
+  ASSERT(r == 0);
+}
+
+
 static void ftruncate_cb(uv_fs_t* req) {
   int r;
   ASSERT(req == &ftruncate_req);
@@ -259,10 +273,24 @@ static void read_cb(uv_fs_t* req) {
   ASSERT(req->result >= 0);  /* FIXME(bnoordhuis) Check if requested size? */
   read_cb_count++;
   uv_fs_req_cleanup(req);
-  if (read_cb_count == 1) {
-    ASSERT(strcmp(buf, test_buf) == 0);
-    r = uv_fs_ftruncate(loop, &ftruncate_req, open_req1.result, 7,
-        ftruncate_cb);
+  if (read_cb_count <= 2) {
+    ASSERT(ftruncate_cb_count == 0 || ftruncate_cb_count == 1);
+    if (ftruncate_cb_count == 0) {
+      /* File is in O_RDWR mode. */
+      ASSERT(strcmp(buf, test_buf) == 0);
+      r = uv_fs_ftruncate(loop,
+                          &ftruncate_req,
+                          open_req1.result,
+                          7,
+                          ftruncate_cb);
+    } else {
+      /* File is in O_RDONLY mode. */
+      r = uv_fs_truncate(loop,
+                         &truncate_req,
+                         "test_file2",
+                         7,
+                         truncate_cb);
+    }
   } else {
     ASSERT(strcmp(buf, "test-bu") == 0);
     r = uv_fs_close(loop, &close_req, open_req1.result, close_cb);
@@ -624,6 +652,7 @@ TEST_IMPL(fs_file_async) {
   ASSERT(rename_cb_count == 1);
   ASSERT(create_cb_count == 1);
   ASSERT(write_cb_count == 1);
+  ASSERT(truncate_cb_count == 0);
   ASSERT(ftruncate_cb_count == 1);
 
   r = uv_fs_open(loop, &open_req1, "test_file2", O_RDONLY, 0, open_cb);
@@ -637,6 +666,7 @@ TEST_IMPL(fs_file_async) {
   ASSERT(unlink_cb_count == 1);
   ASSERT(create_cb_count == 1);
   ASSERT(write_cb_count == 1);
+  ASSERT(truncate_cb_count == 1);
   ASSERT(ftruncate_cb_count == 1);
 
   /* Cleanup. */
@@ -685,6 +715,11 @@ TEST_IMPL(fs_file_sync) {
   ASSERT(read_req.result >= 0);
   ASSERT(strcmp(buf, test_buf) == 0);
   uv_fs_req_cleanup(&read_req);
+
+  r = uv_fs_truncate(loop, &truncate_req, "test_file", 42, NULL);
+  ASSERT(r == 0);
+  ASSERT(truncate_req.result == 0);
+  uv_fs_req_cleanup(&truncate_req);
 
   r = uv_fs_ftruncate(loop, &ftruncate_req, open_req1.result, 7, NULL);
   ASSERT(r == 0);
