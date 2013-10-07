@@ -67,7 +67,11 @@ static void after_write(uv_write_t* req, int status) {
 
 
 static void after_shutdown(uv_shutdown_t* req, int status) {
-  uv_close((uv_handle_t*)req->handle, on_close);
+  /* The handle may have been closed after an error between the call to
+   * uv_shutdown() and this function.
+   */
+  if (!uv_is_closing((uv_handle_t*) req->handle))
+    uv_close((uv_handle_t*) req->handle, on_close);
   free(req);
 }
 
