@@ -142,8 +142,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     }
 
     w->events = w->pevents;
-    e.events = w->pevents;
+    e.events = UV__EPOLLIN | UV__EPOLLOUT | UV__EPOLLET;
     e.data = w->fd;
+
+    if (!(w->pevents & UV__POLLET))
+      e.events = w->pevents;
 
     /* XXX Future optimization: do EPOLL_CTL_MOD lazily if we stop watching
      * events, skip the syscall and squelch the events after epoll_wait().

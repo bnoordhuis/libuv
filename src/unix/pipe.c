@@ -200,9 +200,11 @@ out:
   req->cb = cb;
   QUEUE_INIT(&req->queue);
 
-  /* Force callback to run on next tick in case of error. */
+  /* Force callback to run on next tick in case of error.
+   * POLLERR is non-maskable, it always invokes the callback.
+   */
   if (err)
-    uv__io_feed(handle->loop, &handle->io_watcher, UV__POLLOUT);
+    uv__io_feed(handle->loop, &handle->io_watcher, UV__POLLERR);
 
   /* Mimic the Windows pipe implementation, always
    * return 0 and let the callback handle errors.

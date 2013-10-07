@@ -254,19 +254,43 @@ static int uv__loop_alive(uv_loop_t* loop) {
 
 
 static void uv__run_pending(uv_loop_t* loop) {
+  unsigned int revents;
   uv__io_t* w;
-  int revents;
+  QUEUE queue;
   QUEUE* q;
 
-  while (!QUEUE_EMPTY(&loop->pending_queue)) {
-    q = QUEUE_HEAD(&loop->pending_queue);
+  if (QUEUE_EMPTY(&loop->pending_queue))
+    return;
+
+  q = QUEUE_HEAD(&loop->pending_queue);
+  QUEUE_SPLIT(&loop->pending_queue, q, &queue);
+
+  for (;;) {
     QUEUE_REMOVE(q);
     QUEUE_INIT(q);
 
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
-    revents = w->revents;
-    w->revents = 0;
-    w->cb(loop, w, revents);
+    revents = w->revents & (w->pevents | UV__POLLHUP | UV__POLLERR);
+    if (revents != 0) {
+      if (w->events & UV__POLLET) {
+        /* Insert into the pending queue again. If the callback consumes all
+         * events, we'll filter it out on the next tick when revents == 0.
+         */
+        QUEUE_INSERT_TAIL(&loop->pending_queue, &w->pending_queue);
+      }
+      else {
+        /* Transitionary.  Once all callbacks explicitly consume events,
+         * this can go.
+         */
+        w->revents = 0;
+      }
+      w->cb(loop, w, revents);
+    }
+
+    if (QUEUE_EMPTY(&queue))
+      return;
+
+    q = QUEUE_HEAD(&queue);
   }
 }
 
@@ -695,7 +719,7 @@ void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 
   w->pevents &= ~events;
 
-  if (w->pevents == 0) {
+  if ((w->pevents & ~UV__POLLET) == 0) {
     QUEUE_REMOVE(&w->watcher_queue);
     QUEUE_INIT(&w->watcher_queue);
 
@@ -709,6 +733,11 @@ void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   }
   else if (QUEUE_EMPTY(&w->watcher_queue))
     QUEUE_INSERT_TAIL(&loop->watcher_queue, &w->watcher_queue);
+}
+
+
+void uv__io_mark(uv__io_t* w, unsigned int events) {
+  w->revents &= ~events;
 }
 
 

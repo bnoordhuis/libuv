@@ -107,8 +107,10 @@ static void uv__udp_run_pending(uv_udp_t* handle) {
     /* TODO try to write once or twice more in the
      * hope that the socket becomes readable again?
      */
-    if (size == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))
+    if (size == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      uv__io_mark(&handle->io_watcher, UV__POLLOUT);
       break;
+    }
 
     req->status = (size == -1 ? -errno : size);
 
@@ -205,8 +207,10 @@ static void uv__udp_recvmsg(uv_loop_t* loop,
     while (nread == -1 && errno == EINTR);
 
     if (nread == -1) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK)
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        uv__io_mark(&handle->io_watcher, UV__POLLIN);
         handle->recv_cb(handle, 0, &buf, NULL, 0);
+      }
       else
         handle->recv_cb(handle, -errno, &buf, NULL, 0);
     }
@@ -251,6 +255,7 @@ static void uv__udp_sendmsg(uv_loop_t* loop,
 
   if (!QUEUE_EMPTY(&handle->write_completed_queue)) {
     /* Schedule completion callbacks. */
+    uv__io_start(handle->loop, &handle->io_watcher, UV__POLLOUT);
     uv__io_feed(handle->loop, &handle->io_watcher, UV__POLLOUT);
   }
   else if (QUEUE_EMPTY(&handle->write_queue)) {
@@ -415,7 +420,7 @@ int uv__udp_send(uv_udp_send_t* req,
 
   memcpy(req->bufs, bufs, nbufs * sizeof(bufs[0]));
   QUEUE_INSERT_TAIL(&handle->write_queue, &req->queue);
-  uv__io_start(handle->loop, &handle->io_watcher, UV__POLLOUT);
+  uv__io_start(handle->loop, &handle->io_watcher, UV__POLLOUT | UV__POLLET);
   uv__handle_start(handle);
 
   return 0;
@@ -575,7 +580,7 @@ int uv__udp_recv_start(uv_udp_t* handle,
   handle->alloc_cb = alloc_cb;
   handle->recv_cb = recv_cb;
 
-  uv__io_start(handle->loop, &handle->io_watcher, UV__POLLIN);
+  uv__io_start(handle->loop, &handle->io_watcher, UV__POLLIN | UV__POLLET);
   uv__handle_start(handle);
 
   return 0;

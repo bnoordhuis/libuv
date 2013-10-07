@@ -517,8 +517,10 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 
     err = uv__accept(uv__stream_fd(stream));
     if (err < 0) {
-      if (err == -EAGAIN || err == -EWOULDBLOCK)
+      if (err == -EAGAIN || err == -EWOULDBLOCK) {
+        uv__io_mark(w, UV__POLLIN);
         return;  /* Not an error. */
+      }
 
       if (err == -ECONNABORTED)
         continue;  /* Ignore. Nothing we can do about that. */
@@ -686,6 +688,7 @@ static void uv__write_req_finish(uv_write_t* req) {
    * callback called in the near future.
    */
   QUEUE_INSERT_TAIL(&stream->write_completed_queue, &req->queue);
+  uv__io_start(stream->loop, &stream->io_watcher, UV__POLLOUT);
   uv__io_feed(stream->loop, &stream->io_watcher, UV__POLLOUT);
 }
 
@@ -811,6 +814,8 @@ start:
     } else if (stream->flags & UV_STREAM_BLOCKING) {
       /* If this is a blocking stream, try again. */
       goto start;
+    } else {
+      uv__io_mark(&stream->io_watcher, UV__POLLIN);
     }
   } else {
     /* Successful write */
@@ -1015,10 +1020,7 @@ static void uv__read(uv_stream_t* stream) {
     if (nread < 0) {
       /* Error */
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        /* Wait for the next one. */
-        if (stream->flags & UV_STREAM_READING) {
-          uv__io_start(stream->loop, &stream->io_watcher, UV__POLLIN);
-        }
+        uv__io_mark(&stream->io_watcher, UV__POLLIN);
         uv__stream_read_cb(stream, 0, &buf, UV_UNKNOWN_HANDLE);
       } else {
         /* Error. User should call uv_close(). */
