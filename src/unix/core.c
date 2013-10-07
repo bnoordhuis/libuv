@@ -648,7 +648,6 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   assert(w->fd < INT_MAX);
 
   w->pevents |= events;
-  maybe_resize(loop, w->fd + 1);
 
 #if !defined(__sun)
   /* The event ports backend needs to rearm all file descriptors on each and
@@ -664,8 +663,11 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   }
 #endif
 
-  if (QUEUE_EMPTY(&w->watcher_queue))
-    QUEUE_INSERT_TAIL(&loop->watcher_queue, &w->watcher_queue);
+  if (!QUEUE_EMPTY(&w->watcher_queue))
+    return;
+
+  QUEUE_INSERT_TAIL(&loop->watcher_queue, &w->watcher_queue);
+  maybe_resize(loop, w->fd + 1);
 
   if (loop->watchers[w->fd] == NULL) {
     loop->watchers[w->fd] = w;
