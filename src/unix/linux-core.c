@@ -132,29 +132,33 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     assert(w->fd >= 0);
     assert(w->fd < (int) loop->nwatchers);
 
+    op = UV__EPOLL_CTL_ADD;
+    if (w->events != 0) {
+      /* Skip if edge-triggered and already in epoll set. */
+      if (w->events & UV__EPOLLET)
+        continue;
+      /* Level-triggered and change in event mask. */
+      op = UV__EPOLL_CTL_MOD;
+    }
+
+    w->events = w->pevents;
     e.events = w->pevents;
     e.data = w->fd;
-
-    if (w->events == 0)
-      op = UV__EPOLL_CTL_ADD;
-    else
-      op = UV__EPOLL_CTL_MOD;
 
     /* XXX Future optimization: do EPOLL_CTL_MOD lazily if we stop watching
      * events, skip the syscall and squelch the events after epoll_wait().
      */
-    if (uv__epoll_ctl(loop->backend_fd, op, w->fd, &e)) {
-      if (errno != EEXIST)
-        abort();
+    if (uv__epoll_ctl(loop->backend_fd, op, w->fd, &e) == 0)
+      continue;
 
-      assert(op == UV__EPOLL_CTL_ADD);
+    if (errno != EEXIST)
+      abort();
 
-      /* We've reactivated a file descriptor that's been watched before. */
-      if (uv__epoll_ctl(loop->backend_fd, UV__EPOLL_CTL_MOD, w->fd, &e))
-        abort();
-    }
+    assert(op == UV__EPOLL_CTL_ADD);
 
-    w->events = w->pevents;
+    /* We've reactivated a file descriptor that's been watched before. */
+    if (uv__epoll_ctl(loop->backend_fd, UV__EPOLL_CTL_MOD, w->fd, &e))
+      abort();
   }
 
   assert(timeout >= -1);

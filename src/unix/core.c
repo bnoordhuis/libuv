@@ -646,7 +646,7 @@ void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd) {
 
 
 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
-  assert(0 == (events & ~(UV__POLLIN | UV__POLLOUT)));
+  assert(0 == (events & ~(UV__EPOLLET | UV__POLLIN | UV__POLLOUT)));
   assert(0 != events);
   assert(w->fd >= 0);
   assert(w->fd < INT_MAX);

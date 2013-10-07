@@ -82,6 +82,7 @@
 #endif
 
 #if defined(__linux__)
+# define UV__POLLET   UV__EPOLLET
 # define UV__POLLIN   UV__EPOLLIN
 # define UV__POLLOUT  UV__EPOLLOUT
 # define UV__POLLERR  UV__EPOLLERR
@@ -93,6 +94,10 @@
 # define UV__POLLOUT  POLLOUT
 # define UV__POLLERR  POLLERR
 # define UV__POLLHUP  POLLHUP
+#endif
+
+#ifndef UV__POLLET
+# define UV__POLLET   0
 #endif
 
 #ifndef UV__POLLIN
