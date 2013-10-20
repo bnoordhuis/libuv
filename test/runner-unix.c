@@ -35,8 +35,12 @@
 #include <sys/stat.h>
 #include <assert.h>
 
+#include <sys/un.h>
+#include <sys/socket.h>
 #include <sys/select.h>
 #include <pthread.h>
+
+static int lowest_fd = -1;
 
 
 /* Do platform-specific initialization. */
@@ -353,4 +357,150 @@ void rewind_cursor(void) {
 /* Pause the calling thread for a number of milliseconds. */
 void uv_sleep(int msec) {
   usleep(msec * 1000);
+}
+
+
+static const char* fd_type(int fd, char* buf, size_t buflen) {
+  struct sockaddr sa;
+  const char* family;
+  const char* kind;
+  socklen_t len;
+  struct stat s;
+  int type;
+
+  if (fstat(fd, &s))
+    return strncpy(buf, strerror(errno), buflen);
+
+  if (isatty(fd))
+    return strncpy(buf, "tty", buflen);
+
+  if (S_ISREG(s.st_mode))
+    return strncpy(buf, "file", buflen);
+
+  if (S_ISCHR(s.st_mode))
+    return strncpy(buf, "character device", buflen);
+
+  if (S_ISFIFO(s.st_mode))
+    return strncpy(buf, "fifo", buflen);
+
+  if (!S_ISSOCK(s.st_mode))
+    return strncpy(buf, "unknown fd type", buflen);
+
+  len = sizeof(type);
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &len))
+    return strncpy(buf, strerror(errno), buflen);
+
+  len = sizeof(sa);
+  if (getsockname(fd, &sa, &len))
+    return strncpy(buf, strerror(errno), buflen);
+
+  kind = "unknown";
+  if (type == SOCK_RAW)
+    kind = "raw";
+  else if (type == SOCK_DGRAM)
+    kind = "dgram";
+  else if (type == SOCK_STREAM)
+    kind = "stream";
+
+  family = "unknown";
+  if (sa.sa_family == AF_UNSPEC)
+    family = "unspec";
+  else if (sa.sa_family == AF_INET)
+    family = "inet";
+  else if (sa.sa_family == AF_INET6)
+    family = "inet6";
+  else if (sa.sa_family == AF_UNIX)
+    family = "unix";
+
+  snprintf(buf, buflen, "%s %s socket", family, kind);
+  return buf;
+}
+
+
+static int fd_is_open(int fd) {
+  int rc;
+
+  do
+    rc = dup2(fd, fd);
+  while (rc == -1 && errno == EINTR);
+
+  if (rc == -1) {
+    if (errno == EBADF)
+      return 0;
+    perror("fd_is_open");
+  }
+
+  return 1;
+}
+
+
+static int check_fd_range(int start, int end) {
+  char type[256];
+  int nfds;
+  int fd;
+
+  for (fd = start, nfds = 0; fd <= end; fd += 1) {
+    if (fd_is_open(fd)) {
+      fd_type(fd, type, sizeof(type));
+      fprintf(stderr, "Open file descriptor %d of type %s.\n", fd, type);
+      fflush(stderr);
+      nfds += 1;
+    }
+  }
+
+  return nfds;
+}
+
+
+void before_main_hook(task_entry_t* task) {
+  /* We need to figure out what the lowest free file descriptor is because
+   * it's > 3 when running under gdb.
+   */
+  lowest_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+  if (lowest_fd == -1)
+    perror("before_main_hook:socket");
+  else
+    close(lowest_fd);
+}
+
+
+/* Check for leaked file descriptors. */
+int after_main_hook(task_entry_t* task, int status) {
+  int fd;
+
+  /* Yes, this potentially writes to a file descriptor that's closed. */
+  for (fd = STDIN_FILENO; fd <= STDERR_FILENO; fd += 1) {
+    if (!fd_is_open(fd)) {
+      fprintf(stderr, "Stdio file descriptor %d was closed.\n", fd);
+      fflush(stderr);
+      status = -1;
+    }
+  }
+
+  if (lowest_fd == -1)
+    lowest_fd = STDERR_FILENO + 1;
+
+  fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+  if (fd == -1) {
+    perror("after_main_hook:socket");
+    return -1;
+  }
+  close(fd);
+
+  if (fd != lowest_fd) {
+    fprintf(stderr,
+            "File descriptor leak detected: lowest fd is %d, expected %d.\n",
+            fd,
+            lowest_fd);
+    fflush(stderr);
+    status = -1;
+  }
+
+  if (lowest_fd < fd)
+    fd = lowest_fd;
+
+  if (check_fd_range(fd, fd + 256))
+    return -1;
+
+  return status;
 }

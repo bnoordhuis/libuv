@@ -367,3 +367,12 @@ void rewind_cursor() {
 void uv_sleep(int msec) {
   Sleep(msec);
 }
+
+
+void before_main_hook(task_entry_t* task) {
+}
+
+
+int after_main_hook(task_entry_t* task, int status) {
+  return status;
+}

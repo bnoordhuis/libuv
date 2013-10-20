@@ -164,6 +164,12 @@ void process_cleanup(process_info_t *p);
 /* Move the console cursor one line up and back to the first column. */
 void rewind_cursor(void);
 
+/* Run right before task->main() is entered. */
+void before_main_hook(task_entry_t* task);
+
+/* Run right after task->main() returns. |status| is its return code. */
+int after_main_hook(task_entry_t* task, int status);
+
 /* trigger output as tap */
 extern int tap_output;
 

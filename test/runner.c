@@ -213,7 +213,8 @@ int run_test(const char* test,
   /* If it's a helper the user asks for, start it directly. */
   for (task = TASKS; task->main; task++) {
     if (task->is_helper && strcmp(test, task->process_name) == 0) {
-      return task->main();
+      before_main_hook(task);
+      return after_main_hook(task, task->main());
     }
   }
 
@@ -388,13 +389,12 @@ out:
  */
 int run_test_part(const char* test, const char* part) {
   task_entry_t* task;
-  int r;
 
   for (task = TASKS; task->main; task++) {
     if (strcmp(test, task->task_name) == 0 &&
         strcmp(part, task->process_name) == 0) {
-      r = task->main();
-      return r;
+      before_main_hook(task);
+      return after_main_hook(task, task->main());
     }
   }
 
