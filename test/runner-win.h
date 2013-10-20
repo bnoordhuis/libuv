@@ -19,6 +19,9 @@
  * IN THE SOFTWARE.
  */
 
+#ifndef TEST_RUNNER_WIN_H
+#define TEST_RUNNER_WIN_H
+
 /* Don't complain about _snprintf being insecure. */
 #define _CRT_SECURE_NO_WARNINGS
 
@@ -41,3 +44,5 @@ typedef struct {
   HANDLE stdio_out;
   char *name;
 } process_info_t;
+
+#endif  /* TEST_RUNNER_WIN_H */
