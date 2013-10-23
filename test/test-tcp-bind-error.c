@@ -186,13 +186,13 @@ TEST_IMPL(tcp_bind_localhost_ok) {
 
 
 TEST_IMPL(tcp_listen_without_bind) {
-  int r;
   uv_tcp_t server;
 
-  r = uv_tcp_init(uv_default_loop(), &server);
-  ASSERT(r == 0);
-  r = uv_listen((uv_stream_t*)&server, 128, NULL);
-  ASSERT(r == 0);
+  ASSERT(0 == uv_tcp_init(uv_default_loop(), &server));
+  ASSERT(0 == uv_listen((uv_stream_t*) &server, 128, NULL));
+
+  uv_close((uv_handle_t*) &server, NULL);
+  ASSERT(0 == uv_run(uv_default_loop(), UV_RUN_DEFAULT));
 
   MAKE_VALGRIND_HAPPY();
   return 0;
