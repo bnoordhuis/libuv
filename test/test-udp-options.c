@@ -83,6 +83,9 @@ TEST_IMPL(udp_options) {
   r = uv_run(loop, UV_RUN_DEFAULT);
   ASSERT(r == 0);
 
+  uv_close((uv_handle_t*) &h, NULL);
+  ASSERT(0 == uv_run(loop, UV_RUN_DEFAULT));
+
   MAKE_VALGRIND_HAPPY();
   return 0;
 }
