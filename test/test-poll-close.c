@@ -30,9 +30,6 @@
 #include "uv.h"
 #include "task.h"
 
-#define NUM_SOCKETS 64
-
-
 static int close_cb_called = 0;
 
 
@@ -42,9 +39,11 @@ static void close_cb(uv_handle_t* handle) {
 
 
 TEST_IMPL(poll_close) {
-  uv_os_sock_t sockets[NUM_SOCKETS];
-  uv_poll_t poll_handles[NUM_SOCKETS];
-  int i;
+  uv_os_sock_t sockets[64];
+  uv_poll_t poll_handles[ARRAY_SIZE(sockets)];
+  unsigned int i;
+
+  ASSERT(ARRAY_SIZE(sockets) == ARRAY_SIZE(poll_handles));
 
 #ifdef _WIN32
   {
@@ -54,19 +53,23 @@ TEST_IMPL(poll_close) {
   }
 #endif
 
-  for (i = 0; i < NUM_SOCKETS; i++) {
+  for (i = 0; i < ARRAY_SIZE(sockets); i++) {
     sockets[i] = socket(AF_INET, SOCK_STREAM, 0);
     uv_poll_init_socket(uv_default_loop(), &poll_handles[i], sockets[i]);
     uv_poll_start(&poll_handles[i], UV_READABLE | UV_WRITABLE, NULL);
   }
 
-  for (i = 0; i < NUM_SOCKETS; i++) {
+  for (i = 0; i < ARRAY_SIZE(poll_handles); i++) {
     uv_close((uv_handle_t*) &poll_handles[i], close_cb);
   }
 
   uv_run(uv_default_loop(), UV_RUN_DEFAULT);
+  ASSERT(close_cb_called == ARRAY_SIZE(poll_handles));
 
-  ASSERT(close_cb_called == NUM_SOCKETS);
+  /* Close file descriptors. */
+  for (i = 0; i < ARRAY_SIZE(sockets); i++) {
+    close(sockets[i]);
+  }
 
   MAKE_VALGRIND_HAPPY();
   return 0;
