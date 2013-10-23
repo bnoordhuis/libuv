@@ -131,6 +131,9 @@ TEST_IMPL(tcp_close) {
   ASSERT(write_cb_called == NUM_WRITE_REQS);
   ASSERT(close_cb_called == 1);
 
+  uv_close((uv_handle_t*) &tcp_server, NULL);
+  ASSERT(0 == uv_run(loop, UV_RUN_DEFAULT));
+
   MAKE_VALGRIND_HAPPY();
   return 0;
 }
