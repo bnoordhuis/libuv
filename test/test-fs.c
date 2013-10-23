@@ -1732,8 +1732,9 @@ TEST_IMPL(fs_readdir_file) {
 
 TEST_IMPL(fs_open_dir) {
   const char* path;
+  uv_file file;
   uv_fs_t req;
-  int r, file;
+  int r;
 
   path = ".";
   loop = uv_default_loop();
@@ -1742,7 +1743,7 @@ TEST_IMPL(fs_open_dir) {
   ASSERT(r >= 0);
   ASSERT(req.result >= 0);
   ASSERT(req.ptr == NULL);
-  file = r;
+  file = req.result;
   uv_fs_req_cleanup(&req);
 
   r = uv_fs_close(loop, &req, file, NULL);
@@ -1754,6 +1755,10 @@ TEST_IMPL(fs_open_dir) {
   ASSERT(open_cb_count == 0);
   uv_run(loop, UV_RUN_DEFAULT);
   ASSERT(open_cb_count == 1);
+
+  ASSERT(0 == uv_fs_close(loop, &close_req, file, close_cb));
+  ASSERT(0 == uv_run(loop, UV_RUN_DEFAULT));
+  ASSERT(1 == close_cb_count);
 
   MAKE_VALGRIND_HAPPY();
   return 0;
