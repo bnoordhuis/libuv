@@ -135,5 +135,6 @@ TEST_IMPL(embed) {
   ASSERT(embed_timer_called == 1);
 #endif
 
+  MAKE_VALGRIND_HAPPY();
   return 0;
 }
