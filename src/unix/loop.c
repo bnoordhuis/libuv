@@ -22,12 +22,19 @@
 #include "uv.h"
 #include "tree.h"
 #include "internal.h"
+
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
+static int uv__loop_global_init(void);
+static void uv__loop_global_destroy(void);
 static int uv__loop_init(uv_loop_t* loop, int default_loop);
 static void uv__loop_delete(uv_loop_t* loop);
+
+static pthread_mutex_t global_loop_lock = PTHREAD_MUTEX_INITIALIZER;
+static unsigned int global_loop_count;
 
 static uv_loop_t default_loop_struct;
 static uv_loop_t* default_loop_ptr;
@@ -77,7 +84,9 @@ static int uv__loop_init(uv_loop_t* loop, int default_loop) {
   unsigned int i;
   int err;
 
-  uv__signal_global_once_init();
+  err = uv__loop_global_init();
+  if (err)
+    return err;
 
   memset(loop, 0, sizeof(*loop));
   RB_INIT(&loop->timer_handles);
@@ -160,4 +169,38 @@ static void uv__loop_delete(uv_loop_t* loop) {
   free(loop->watchers);
   loop->watchers = NULL;
   loop->nwatchers = 0;
+
+  uv__loop_global_destroy();
+}
+
+
+static int uv__loop_global_init(void) {
+  int err;
+
+  err = 0;
+  if (pthread_mutex_lock(&global_loop_lock))
+    abort();
+
+  if (++global_loop_count == 1)
+    err = uv__signal_global_init();
+
+  if (pthread_mutex_unlock(&global_loop_lock))
+    abort();
+
+  return err;
+}
+
+
+static void uv__loop_global_destroy(void) {
+  if (pthread_mutex_lock(&global_loop_lock))
+    abort();
+
+  assert(global_loop_count > 0);
+  if (--global_loop_count == 0) {
+    uv__threadpool_global_destroy();
+    uv__signal_global_destroy();
+  }
+
+  if (pthread_mutex_unlock(&global_loop_lock))
+    abort();
 }

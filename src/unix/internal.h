@@ -179,11 +179,13 @@ void uv__run_timers(uv_loop_t* loop);
 int uv__next_timeout(const uv_loop_t* loop);
 
 /* signal */
+int uv__signal_global_init(void);
+void uv__signal_global_destroy(void);
 void uv__signal_close(uv_signal_t* handle);
-void uv__signal_global_once_init(void);
 void uv__signal_loop_cleanup(uv_loop_t* loop);
 
 /* thread pool */
+void uv__threadpool_global_destroy(void);
 void uv__work_submit(uv_loop_t* loop,
                      struct uv__work *w,
                      void (*work)(struct uv__work *w),

@@ -129,7 +129,10 @@ static void init_once(void) {
 }
 
 
-UV_DESTRUCTOR(static void cleanup(void)) {
+/* This function is called with the global loop lock held when the last
+ * event loop has been destroyed.
+ */
+void uv__threadpool_global_destroy(void) {
   unsigned int i;
 
   if (initialized == 0)

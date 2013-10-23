@@ -42,31 +42,49 @@ static void uv__signal_event(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 static int uv__signal_compare(uv_signal_t* w1, uv_signal_t* w2);
 static void uv__signal_stop(uv_signal_t* handle);
 
-
-static pthread_once_t uv__signal_global_init_guard = PTHREAD_ONCE_INIT;
+static int uv__signal_lock_pipefd[2] = { -1, -1 };
 static struct uv__signal_tree_s uv__signal_tree =
     RB_INITIALIZER(uv__signal_tree);
-static int uv__signal_lock_pipefd[2];
 
 
 RB_GENERATE_STATIC(uv__signal_tree_s,
-                   uv_signal_s, tree_entry,
+                   uv_signal_s,
+                   tree_entry,
                    uv__signal_compare)
 
 
-static void uv__signal_global_init(void) {
-  if (uv__make_pipe(uv__signal_lock_pipefd, 0))
-    abort();
+/* This function is called with the global loop lock held when the first
+ * event loop is about to be created.
+ */
+int uv__signal_global_init(void) {
+  int err;
 
-  if (uv__signal_unlock())
-    abort();
+  /* Allocate the file descriptors for the signal pipe upfront.  Creating the
+   * pipe lazily risks hitting EMFILE at a point where we can't reasonably
+   * return an error.  This is something we should revisit in the future.
+   */
+  err = uv__make_pipe(uv__signal_lock_pipefd, 0);
+  if (err == 0)
+    if (uv__signal_unlock())
+      abort();
+
+  return err;
 }
 
 
-void uv__signal_global_once_init(void) {
-  pthread_once(&uv__signal_global_init_guard, uv__signal_global_init);
+/* This function is called with the global loop lock held when the last
+ * event loop has been destroyed.
+ */
+void uv__signal_global_destroy(void) {
+  if (uv__signal_lock_pipefd[0] != -1) {
+    uv__close(uv__signal_lock_pipefd[0]);
+    uv__signal_lock_pipefd[0] = -1;
+  }
+  if (uv__signal_lock_pipefd[1] != -1) {
+    uv__close(uv__signal_lock_pipefd[1]);
+    uv__signal_lock_pipefd[1] = -1;
+  }
 }
-
 
 
 static int uv__signal_lock(void) {
