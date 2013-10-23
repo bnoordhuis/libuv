@@ -42,5 +42,6 @@ TEST_IMPL(run_nowait) {
   ASSERT(r != 0);
   ASSERT(timer_called == 0);
 
+  MAKE_VALGRIND_HAPPY();
   return 0;
 }
