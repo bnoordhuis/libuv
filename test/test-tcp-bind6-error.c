@@ -147,14 +147,13 @@ TEST_IMPL(tcp_bind6_error_inval) {
 TEST_IMPL(tcp_bind6_localhost_ok) {
   struct sockaddr_in6 addr;
   uv_tcp_t server;
-  int r;
 
   ASSERT(0 == uv_ip6_addr("::1", TEST_PORT, &addr));
+  ASSERT(0 == uv_tcp_init(uv_default_loop(), &server));
+  ASSERT(0 == uv_tcp_bind(&server, (const struct sockaddr*) &addr));
 
-  r = uv_tcp_init(uv_default_loop(), &server);
-  ASSERT(r == 0);
-  r = uv_tcp_bind(&server, (const struct sockaddr*) &addr);
-  ASSERT(r == 0);
+  uv_close((uv_handle_t*) &server, NULL);
+  ASSERT(0 == uv_run(uv_default_loop(), UV_RUN_DEFAULT));
 
   MAKE_VALGRIND_HAPPY();
   return 0;
