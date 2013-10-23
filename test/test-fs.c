@@ -1651,6 +1651,10 @@ TEST_IMPL(fs_futime) {
   uv_run(loop, UV_RUN_DEFAULT);
   ASSERT(futime_cb_count == 1);
 
+  ASSERT(0 == uv_fs_close(loop, &close_req, file, close_cb));
+  ASSERT(0 == uv_run(loop, UV_RUN_DEFAULT));
+  ASSERT(1 == close_cb_count);
+
   /* Cleanup. */
   unlink(path);
 
