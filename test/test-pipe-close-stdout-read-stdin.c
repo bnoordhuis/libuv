@@ -54,16 +54,19 @@ TEST_IMPL(pipe_close_stdout_read_stdin) {
   int fd[2];
   int status;
 
-  pipe(fd);
+  ASSERT(0 == pipe(fd));
 
-  if ((pid = fork()) == 0) {
+  pid = fork();
+  ASSERT(pid != -1);
+
+  if (pid == 0) {
     /*
      * Make the read side of the pipe our stdin.
      * The write side will be closed by the parent process.
     */
-    close(fd[1]);
-    close(0);
-    dup(fd[0]);
+    ASSERT(0 == close(fd[1]));
+    ASSERT(0 == close(0));
+    ASSERT(0 == dup(fd[0]));
 
     /* Create a stream that reads from the pipe. */
     uv_pipe_t stdin_pipe;
@@ -89,8 +92,8 @@ TEST_IMPL(pipe_close_stdout_read_stdin) {
      * get a POLLHUP event when it tries to read from
      * the other end.
      */
-     close(fd[1]);
-     close(fd[0]);
+     ASSERT(0 == close(fd[1]));
+     ASSERT(0 == close(fd[0]));
 
     waitpid(pid, &status, 0);
     ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0);
