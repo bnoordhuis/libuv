@@ -41,6 +41,7 @@ static void uv__req_init(uv_loop_t* loop,
 
 #define MAX_THREADPOOL_SIZE 128
 
+static uv_queue_cb queue_cb;
 static uv_once_t once = UV_ONCE_INIT;
 static uv_cond_t cond;
 static uv_mutex_t mutex;
@@ -61,7 +62,6 @@ static void uv__cancelled(struct uv__work* w) {
  * never holds the global mutex and the loop-local mutex at the same time.
  */
 static void worker(void* arg) {
-  struct uv__work* w;
   QUEUE* q;
 
   (void) arg;
@@ -87,15 +87,7 @@ static void worker(void* arg) {
     if (q == &exit_message)
       break;
 
-    w = QUEUE_DATA(q, struct uv__work, wq);
-    w->work(w);
-
-    uv_mutex_lock(&w->loop->wq_mutex);
-    w->work = NULL;  /* Signal uv_cancel() that the work req is done
-                        executing. */
-    QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
-    uv_async_send(&w->loop->wq_async);
-    uv_mutex_unlock(&w->loop->wq_mutex);
+    uv_queue_run(q);
   }
 }
 
@@ -115,7 +107,7 @@ UV_DESTRUCTOR(static void cleanup(void)) {
   if (initialized == 0)
     return;
 
-  post(&exit_message);
+  queue_cb(&exit_message, 0);
 
   for (i = 0; i < nthreads; i++)
     if (uv_thread_join(threads + i))
@@ -137,6 +129,10 @@ UV_DESTRUCTOR(static void cleanup(void)) {
 static void init_once(void) {
   unsigned int i;
   const char* val;
+
+  if (queue_cb != NULL)
+    return;
+  queue_cb = (uv_queue_cb) post;
 
   nthreads = ARRAY_SIZE(default_threads);
   val = getenv("UV_THREADPOOL_SIZE");
@@ -180,7 +176,7 @@ void uv__work_submit(uv_loop_t* loop,
   w->loop = loop;
   w->work = work;
   w->done = done;
-  post(&w->wq);
+  queue_cb(&w->wq, 0);
 }
 
 
@@ -297,4 +293,26 @@ int uv_cancel(uv_req_t* req) {
   }
 
   return uv__work_cancel(w);
+}
+
+
+void uv_queue_set_cb(uv_queue_cb callback) {
+  queue_cb = callback;
+}
+
+
+void uv_queue_run(void* ctx) {
+  struct uv__work* w;
+  QUEUE* q;
+
+  q = ctx;
+  w = QUEUE_DATA(q, struct uv__work, wq);
+  w->work(w);
+
+  uv_mutex_lock(&w->loop->wq_mutex);
+  w->work = NULL;  /* Signal uv_cancel() that the work req is done
+                      executing. */
+  QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
+  uv_async_send(&w->loop->wq_async);
+  uv_mutex_unlock(&w->loop->wq_mutex);
 }
