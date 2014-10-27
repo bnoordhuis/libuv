@@ -184,17 +184,19 @@ void uv__work_submit(uv_loop_t* loop,
 }
 
 
-static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
+static int uv__work_cancel(struct uv__work* w) {
+  uv_loop_t* loop;
   int cancelled;
 
+  loop = w->loop;
   uv_mutex_lock(&mutex);
-  uv_mutex_lock(&w->loop->wq_mutex);
+  uv_mutex_lock(&loop->wq_mutex);
 
   cancelled = !QUEUE_EMPTY(&w->wq) && w->work != NULL;
   if (cancelled)
     QUEUE_REMOVE(&w->wq);
 
-  uv_mutex_unlock(&w->loop->wq_mutex);
+  uv_mutex_unlock(&loop->wq_mutex);
   uv_mutex_unlock(&mutex);
 
   if (!cancelled)
@@ -275,29 +277,24 @@ int uv_queue_work(uv_loop_t* loop,
 
 
 int uv_cancel(uv_req_t* req) {
-  struct uv__work* wreq;
-  uv_loop_t* loop;
+  struct uv__work* w;
 
   switch (req->type) {
   case UV_FS:
-    loop =  ((uv_fs_t*) req)->loop;
-    wreq = &((uv_fs_t*) req)->work_req;
+    w = &((uv_fs_t*) req)->work_req;
     break;
   case UV_GETADDRINFO:
-    loop =  ((uv_getaddrinfo_t*) req)->loop;
-    wreq = &((uv_getaddrinfo_t*) req)->work_req;
+    w = &((uv_getaddrinfo_t*) req)->work_req;
     break;
   case UV_GETNAMEINFO:
-    loop = ((uv_getnameinfo_t*) req)->loop;
-    wreq = &((uv_getnameinfo_t*) req)->work_req;
+    w = &((uv_getnameinfo_t*) req)->work_req;
     break;
   case UV_WORK:
-    loop =  ((uv_work_t*) req)->loop;
-    wreq = &((uv_work_t*) req)->work_req;
+    w = &((uv_work_t*) req)->work_req;
     break;
   default:
     return UV_EINVAL;
   }
 
-  return uv__work_cancel(loop, req, wreq);
+  return uv__work_cancel(w);
 }
