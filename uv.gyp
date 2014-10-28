@@ -1,4 +1,10 @@
 {
+  'variables': {
+    'clang%': 0,
+    # Allow override to 'shared_library' for DLL/.so builds.
+    'uv_library%': 'static_library',
+  },
+
   'target_defaults': {
     'conditions': [
       ['OS != "win"', {
