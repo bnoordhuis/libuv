@@ -18,6 +18,8 @@
 
 #include "internal.h"  /* UV_UNUSED */
 
+UV_UNUSED(static int atomic_seti(int* ptr, int newval));
+UV_UNUSED(static long atomic_setl(long* ptr, long newval));
 UV_UNUSED(static int cmpxchgi(int* ptr, int oldval, int newval));
 UV_UNUSED(static long cmpxchgl(long* ptr, long oldval, long newval));
 UV_UNUSED(static void cpu_relax(void));
@@ -25,6 +27,44 @@ UV_UNUSED(static void cpu_relax(void));
 /* Prefer hand-rolled assembly over the gcc builtins because the latter also
  * issue full memory barriers.
  */
+UV_UNUSED(static int atomic_seti(int* ptr, int newval)) {
+#if defined(__i386__) || defined(__x86_64__)
+  __asm__ __volatile__ ("xchgl %0, %1"
+                        : "+r" (newval)
+                        : "m" (*ptr)
+                        : "memory");
+  return newval;
+#else
+  int oldval;
+
+  /* Emulate atomic load+store with an atomic load+cmpxchg loop. */
+  do
+    oldval = __sync_fetch_and_add(ptr, 0);
+  while (oldval != __sync_val_compare_and_swap(ptr, oldval, newval));
+
+  return oldval;
+#endif
+}
+
+UV_UNUSED(static long atomic_setl(long* ptr, long newval)) {
+#if defined(__i386__) || defined(__x86_64__)
+  __asm__ __volatile__ ("xchgl %0, %1"
+                        : "+r" (newval)
+                        : "m" (*ptr)
+                        : "memory");
+  return newval;
+#else
+  long oldval;
+
+  /* Emulate atomic load+store with an atomic load+cmpxchg loop. */
+  do
+    oldval = __sync_fetch_and_add(ptr, 0);
+  while (oldval != __sync_val_compare_and_swap(ptr, oldval, newval));
+
+  return oldval;
+#endif
+}
+
 UV_UNUSED(static int cmpxchgi(int* ptr, int oldval, int newval)) {
 #if defined(__i386__) || defined(__x86_64__)
   int out;
