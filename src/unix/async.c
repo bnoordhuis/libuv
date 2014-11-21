@@ -58,7 +58,7 @@ int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
 
 
 int uv_async_send(uv_async_t* handle) {
-  if (cmpxchgi(&handle->pending, 0, 1) == 0)
+  if (atomic_seti(&handle->pending, 1) == 0)
     uv__async_send(&handle->loop->async_watcher);
 
   return 0;
