@@ -22,6 +22,7 @@
  * user-facing uv_async_t functions.
  */
 
+#include "atomic-ops.h"
 #include "uv.h"
 #include "internal.h"
 
@@ -35,7 +36,6 @@
 static void uv__async_event(uv_loop_t* loop,
                             struct uv__async* w,
                             unsigned int nevents);
-static int uv__async_make_pending(int* pending);
 static int uv__async_eventfd(void);
 
 
@@ -58,7 +58,7 @@ int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
 
 
 int uv_async_send(uv_async_t* handle) {
-  if (uv__async_make_pending(&handle->pending) == 0)
+  if (cmpxchgi(&handle->pending, 0, 1) == 0)
     uv__async_send(&handle->loop->async_watcher);
 
   return 0;
@@ -88,37 +88,6 @@ static void uv__async_event(uv_loop_t* loop,
       continue;
     h->async_cb(h);
   }
-}
-
-
-static int uv__async_make_pending(int* pending) {
-  /* Do a cheap read first. */
-  if (ACCESS_ONCE(int, *pending) != 0)
-    return 1;
-
-  /* Micro-optimization: use atomic memory operations to detect if we've been
-   * preempted by another thread and don't have to make an expensive syscall.
-   * This speeds up the heavily contended case by about 1-2% and has little
-   * if any impact on the non-contended case.
-   *
-   * Use XCHG instead of the CMPXCHG that __sync_val_compare_and_swap() emits
-   * on x86, it's about 4x faster. It probably makes zero difference in the
-   * grand scheme of things but I'm OCD enough not to let this one pass.
-   */
-#if defined(__i386__) || defined(__x86_64__)
-  {
-    unsigned int val = 1;
-    __asm__ __volatile__ ("xchgl %0, %1"
-                         : "+r" (val)
-                         : "m"  (*pending));
-    return val != 0;
-  }
-#elif defined(__GNUC__) && (__GNUC__ > 4 || __GNUC__ == 4 && __GNUC_MINOR__ > 0)
-  return __sync_val_compare_and_swap(pending, 0, 1) != 0;
-#else
-  ACCESS_ONCE(int, *pending) = 1;
-  return 0;
-#endif
 }
 
 
