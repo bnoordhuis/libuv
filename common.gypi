@@ -5,7 +5,6 @@
     'host_arch%': 'ia32',            # set v8's host architecture
     'component%': 'static_library',  # NB. these names match with what V8 expects
     'msvs_multi_core_compile': '0',  # we do enable multicore compiles, but not using the V8 way
-    'gcc_version%': 'unknown',
   },
 
   'target_defaults': {
@@ -13,7 +12,7 @@
     'configurations': {
       'Debug': {
         'defines': [ 'DEBUG', '_DEBUG' ],
-        'cflags': [ '-g', '-O0', '-fwrapv' ],
+        'cflags': [ '-g', '-O0', '-fwrapv', '-fvisibility=hidden' ],
         'msvs_settings': {
           'VCCLCompilerTool': {
             'target_conditions': [
@@ -155,9 +154,6 @@
           [ 'OS not in "solaris android"', {
             'cflags': [ '-pthread' ],
             'ldflags': [ '-pthread' ],
-          }],
-          [ 'visibility=="hidden" and (clang==1 or gcc_version >= 40)', {
-            'cflags': [ '-fvisibility=hidden' ],
           }],
         ],
       }],
