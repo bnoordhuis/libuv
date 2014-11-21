@@ -12,7 +12,7 @@
     'configurations': {
       'Debug': {
         'defines': [ 'DEBUG', '_DEBUG' ],
-        'cflags': [ '-g', '-O0', '-fwrapv', '-fvisibility=hidden' ],
+        'cflags': [ '-g', '-O0', '-ftrapv', '-fvisibility=hidden' ],
         'msvs_settings': {
           'VCCLCompilerTool': {
             'target_conditions': [
