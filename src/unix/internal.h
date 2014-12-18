@@ -311,4 +311,31 @@ UV_UNUSED(static char* uv__basename_r(const char* path)) {
   return s + 1;
 }
 
+#define UV_BIT_FIELD(prefix, type, field, name, start, numbits)               \
+  UV_UNUSED(static unsigned int prefix##name(const type* that)) {             \
+    const unsigned int mask = (1 << numbits) - 1;                             \
+    return (that->field >> start) & mask;                                     \
+  }                                                                           \
+  UV_UNUSED(static void prefix##name##_set(type* that, unsigned int bits)) {  \
+    const unsigned int mask = (1 << numbits) - 1;                             \
+    that->field = (that->field & ~(mask << start)) | (bits & mask) << start;  \
+  }                                                                           \
+  UV_UNUSED(static void prefix##name##_and(type* that, unsigned int bits)) {  \
+    prefix##name##_set(that, bits & prefix##name(that));                      \
+  }                                                                           \
+  UV_UNUSED(static void prefix##name##_or(type* that, unsigned int bits)) {   \
+    prefix##name##_set(that, bits | prefix##name(that));                      \
+  }
+
+UV_BIT_FIELD(uv__io_, uv__io_t, events, current_events, 0, 10)
+UV_BIT_FIELD(uv__io_, uv__io_t, events, pending_events, 10, 10)
+
+/* Make sure that the flags fit in the bit field.  Should not be an
+ * issue because they fit in four bits on all supported platforms.
+ */
+STATIC_ASSERT(UV__POLLERR < 1 << 10);
+STATIC_ASSERT(UV__POLLHUP < 1 << 10);
+STATIC_ASSERT(UV__POLLIN  < 1 << 10);
+STATIC_ASSERT(UV__POLLOUT < 1 << 10);
+
 #endif /* UV_UNIX_INTERNAL_H_ */

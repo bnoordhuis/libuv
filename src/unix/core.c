@@ -768,7 +768,6 @@ void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd) {
   w->cb = cb;
   w->fd = fd;
   w->events = 0;
-  w->pevents = 0;
 
 #if defined(UV_HAVE_KQUEUE)
   w->rcount = 0;
@@ -783,7 +782,7 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   assert(w->fd >= 0);
   assert(w->fd < INT_MAX);
 
-  w->pevents |= events;
+  uv__io_pending_events_or(w, events);
   maybe_resize(loop, w->fd + 1);
 
 #if !defined(__sun)
@@ -791,8 +790,8 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
    * every tick of the event loop but the other backends allow us to
    * short-circuit here if the event mask is unchanged.
    */
-  if (w->events == w->pevents) {
-    if (w->events == 0 && !QUEUE_EMPTY(&w->watcher_queue)) {
+  if (uv__io_current_events(w) == uv__io_pending_events(w)) {
+    if (uv__io_current_events(w) == 0 && !QUEUE_EMPTY(&w->watcher_queue)) {
       QUEUE_REMOVE(&w->watcher_queue);
       QUEUE_INIT(&w->watcher_queue);
     }
@@ -823,9 +822,9 @@ void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   if ((unsigned) w->fd >= loop->nwatchers)
     return;
 
-  w->pevents &= ~events;
+  uv__io_pending_events_and(w, ~events);
 
-  if (w->pevents == 0) {
+  if (uv__io_pending_events(w) == 0) {
     QUEUE_REMOVE(&w->watcher_queue);
     QUEUE_INIT(&w->watcher_queue);
 
@@ -834,7 +833,7 @@ void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
       assert(loop->nfds > 0);
       loop->watchers[w->fd] = NULL;
       loop->nfds--;
-      w->events = 0;
+      uv__io_current_events_set(w, 0);
     }
   }
   else if (QUEUE_EMPTY(&w->watcher_queue))
@@ -860,7 +859,7 @@ void uv__io_feed(uv_loop_t* loop, uv__io_t* w) {
 int uv__io_active(const uv__io_t* w, unsigned int events) {
   assert(0 == (events & ~(UV__POLLIN | UV__POLLOUT)));
   assert(0 != events);
-  return 0 != (w->pevents & events);
+  return 0 != (events & uv__io_pending_events(w));
 }
 
 

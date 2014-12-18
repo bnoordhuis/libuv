@@ -163,14 +163,14 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     QUEUE_INIT(q);
 
     w = QUEUE_DATA(q, uv__io_t, watcher_queue);
-    assert(w->pevents != 0);
+    assert(uv__io_pending_events(w) != 0);
     assert(w->fd >= 0);
     assert(w->fd < (int) loop->nwatchers);
 
-    e.events = w->pevents;
+    e.events = uv__io_pending_events(w);
     e.data = w->fd;
 
-    if (w->events == 0)
+    if (uv__io_current_events(w) == 0)
       op = UV__EPOLL_CTL_ADD;
     else
       op = UV__EPOLL_CTL_MOD;
@@ -189,7 +189,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         abort();
     }
 
-    w->events = w->pevents;
+    uv__io_current_events_set(w, uv__io_pending_events(w));
   }
 
   sigmask = 0;
@@ -276,7 +276,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
        * the current watcher. Also, filters out events that users has not
        * requested us to watch.
        */
-      pe->events &= w->pevents | UV__POLLERR | UV__POLLHUP;
+      pe->events &= uv__io_pending_events(w) | UV__POLLERR | UV__POLLHUP;
 
       /* Work around an epoll quirk where it sometimes reports just the
        * EPOLLERR or EPOLLHUP event.  In order to force the event loop to
@@ -294,7 +294,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
        * free when we switch over to edge-triggered I/O.
        */
       if (pe->events == UV__EPOLLERR || pe->events == UV__EPOLLHUP)
-        pe->events |= w->pevents & (UV__EPOLLIN | UV__EPOLLOUT);
+        pe->events |= uv__io_pending_events(w) & (UV__EPOLLIN | UV__EPOLLOUT);
 
       if (pe->events != 0) {
         w->cb(loop, w, pe->events);

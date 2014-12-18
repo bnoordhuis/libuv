@@ -81,11 +81,12 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     QUEUE_INIT(q);
 
     w = QUEUE_DATA(q, uv__io_t, watcher_queue);
-    assert(w->pevents != 0);
+    assert(uv__io_pending_events(w) != 0);
     assert(w->fd >= 0);
     assert(w->fd < (int) loop->nwatchers);
 
-    if ((w->events & UV__POLLIN) == 0 && (w->pevents & UV__POLLIN) != 0) {
+    if ((uv__io_current_events(w) & UV__POLLIN) == 0 &&
+        (uv__io_pending_events(w) & UV__POLLIN) != 0) {
       filter = EVFILT_READ;
       fflags = 0;
       op = EV_ADD;
@@ -106,7 +107,8 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       }
     }
 
-    if ((w->events & UV__POLLOUT) == 0 && (w->pevents & UV__POLLOUT) != 0) {
+    if ((uv__io_current_events(w) & UV__POLLOUT) == 0 &&
+        (uv__io_pending_events(w) & UV__POLLOUT) != 0) {
       EV_SET(events + nevents, w->fd, EVFILT_WRITE, EV_ADD, 0, 0, 0);
 
       if (++nevents == ARRAY_SIZE(events)) {
@@ -116,7 +118,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       }
     }
 
-    w->events = w->pevents;
+    uv__io_current_events_set(w, uv__io_pending_events(w));
   }
 
   pset = NULL;
@@ -201,8 +203,8 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       }
 
       if (ev->filter == EVFILT_VNODE) {
-        assert(w->events == UV__POLLIN);
-        assert(w->pevents == UV__POLLIN);
+        assert(uv__io_current_events(w) == UV__POLLIN);
+        assert(uv__io_pending_events(w) == UV__POLLIN);
         w->cb(loop, w, ev->fflags); /* XXX always uv__fs_event() */
         nevents++;
         continue;
@@ -211,7 +213,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       revents = 0;
 
       if (ev->filter == EVFILT_READ) {
-        if (w->pevents & UV__POLLIN) {
+        if (uv__io_pending_events(w) & UV__POLLIN) {
           revents |= UV__POLLIN;
           w->rcount = ev->data;
         } else {
@@ -225,7 +227,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       }
 
       if (ev->filter == EVFILT_WRITE) {
-        if (w->pevents & UV__POLLOUT) {
+        if (uv__io_pending_events(w) & UV__POLLOUT) {
           revents |= UV__POLLOUT;
           w->wcount = ev->data;
         } else {

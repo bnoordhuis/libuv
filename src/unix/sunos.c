@@ -145,12 +145,14 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     QUEUE_INIT(q);
 
     w = QUEUE_DATA(q, uv__io_t, watcher_queue);
-    assert(w->pevents != 0);
+    assert(uv__io_pending_events(w) != 0);
 
-    if (port_associate(loop->backend_fd, PORT_SOURCE_FD, w->fd, w->pevents, 0))
+    if (port_associate(loop->backend_fd, PORT_SOURCE_FD,
+                       w->fd, uv__io_pending_events(w), 0)) {
       abort();
+    }
 
-    w->events = w->pevents;
+    uv__io_current_events_set(w, uv__io_pending_events(w));
   }
 
   pset = NULL;
@@ -248,7 +250,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         continue;  /* Disabled by callback. */
 
       /* Events Ports operates in oneshot mode, rearm timer on next run. */
-      if (w->pevents != 0 && QUEUE_EMPTY(&w->watcher_queue))
+      if (uv__io_pending_events(w) != 0 && QUEUE_EMPTY(&w->watcher_queue))
         QUEUE_INSERT_TAIL(&loop->watcher_queue, &w->watcher_queue);
     }
     loop->watchers[loop->nwatchers] = NULL;

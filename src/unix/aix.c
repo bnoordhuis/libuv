@@ -115,15 +115,15 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     QUEUE_INIT(q);
 
     w = QUEUE_DATA(q, uv__io_t, watcher_queue);
-    assert(w->pevents != 0);
+    assert(uv__io_pending_events(w) != 0);
     assert(w->fd >= 0);
     assert(w->fd < (int) loop->nwatchers);
 
-    pc.events = w->pevents;
+    pc.events = uv__io_pending_events(w);
     pc.fd = w->fd;
 
     add_failed = 0;
-    if (w->events == 0) {
+    if (uv__io_current_events(w) == 0) {
       pc.cmd = PS_ADD;
       if (pollset_ctl(loop->backend_fd, &pc, 1)) {
         if (errno != EINVAL) {
@@ -146,10 +146,10 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         add_failed = 1;
       }
     }
-    if (w->events != 0 || add_failed) {
+    if (uv__io_current_events(w) != 0 || add_failed) {
       /* Modify, potentially removing events -- need to delete then add.
        * Could maybe mod if we knew for sure no events are removed, but
-       * content of w->events is handled above as not reliable (falls back)
+       * content of current_events is handled above as not reliable (falls back)
        * so may require a pollset_query() which would have to be pretty cheap
        * compared to a PS_DELETE to be worth optimizing. Alternatively, could
        * lazily remove events, squelching them in the mean time. */
@@ -165,7 +165,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       }
     }
 
-    w->events = w->pevents;
+    uv__io_current_events_set(w, uv__io_pending_events(w));
   }
 
   assert(timeout >= -1);
