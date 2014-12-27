@@ -760,14 +760,23 @@ static void maybe_resize(uv_loop_t* loop, unsigned int len) {
 }
 
 
-void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd) {
+#undef uv__io_init
+void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd, unsigned int flags) {
+  /* Verify that EPOLLET is what we expect.  The first 30 bits of w->events
+   * are used for bit fields so EPOLLET needs to be either > 2**30 or zero
+   * when edge-triggered I/O is not supported by the platform.
+   */
+  STATIC_ASSERT(UV__POLLET == 0 || UV__POLLET == 1U << 31);
+
+  assert(flags == 0 || flags == UV__POLLET);
   assert(cb != NULL);
   assert(fd >= -1);
+
   QUEUE_INIT(&w->pending_queue);
   QUEUE_INIT(&w->watcher_queue);
   w->cb = cb;
   w->fd = fd;
-  w->events = 0;
+  w->events = flags;
 
 #if defined(UV_HAVE_KQUEUE)
   w->rcount = 0;

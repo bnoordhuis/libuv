@@ -89,6 +89,7 @@
 #endif
 
 #if defined(__linux__)
+# define UV__POLLET   UV__EPOLLET
 # define UV__POLLIN   UV__EPOLLIN
 # define UV__POLLOUT  UV__EPOLLOUT
 # define UV__POLLERR  UV__EPOLLERR
@@ -100,6 +101,10 @@
 # define UV__POLLOUT  POLLOUT
 # define UV__POLLERR  POLLERR
 # define UV__POLLHUP  POLLHUP
+#endif
+
+#ifndef UV__POLLET
+# define UV__POLLET   0
 #endif
 
 #ifndef UV__POLLIN
@@ -172,7 +177,9 @@ int uv__dup(int fd);
 ssize_t uv__recvmsg(int fd, struct msghdr *msg, int flags);
 void uv__make_close_pending(uv_handle_t* handle);
 
-void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd);
+void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd, unsigned int flags);
+#define uv__io_init(w, cb, fd) uv__io_init((w), (cb), (fd), 0)
+
 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 void uv__io_close(uv_loop_t* loop, uv__io_t* w);
@@ -327,8 +334,18 @@ UV_UNUSED(static char* uv__basename_r(const char* path)) {
     prefix##name##_set(that, bits | prefix##name(that));                      \
   }
 
+/* current_events is the set of current events that libuv is monitoring.
+ * pending_events is the set of events at the next call to uv__io_poll().
+ * reported_events is the set of events reported by the kernel.
+ *
+ * reported_events can be a superset of current_events or pending_events in
+ * edge-triggered mode because it's generally cheaper to ask for all events
+ * and remember the ones that the user is not interested in right now than
+ * it is to call epoll_ctl() every time current_events changes.
+ */
 UV_BIT_FIELD(uv__io_, uv__io_t, events, current_events, 0, 10)
 UV_BIT_FIELD(uv__io_, uv__io_t, events, pending_events, 10, 10)
+UV_BIT_FIELD(uv__io_, uv__io_t, events, reported_events, 20, 10)
 
 /* Make sure that the flags fit in the bit field.  Should not be an
  * issue because they fit in four bits on all supported platforms.

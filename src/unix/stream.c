@@ -97,7 +97,8 @@ void uv__stream_init(uv_loop_t* loop,
   stream->select = NULL;
 #endif /* defined(__APPLE_) */
 
-  uv__io_init(&stream->io_watcher, uv__stream_io, -1);
+#undef uv__io_init
+  uv__io_init(&stream->io_watcher, uv__stream_io, -1, UV__POLLET);
 }
 
 

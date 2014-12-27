@@ -167,7 +167,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     assert(w->fd >= 0);
     assert(w->fd < (int) loop->nwatchers);
 
-    e.events = uv__io_pending_events(w);
+    if (w->events & UV__POLLET)
+      e.events = UV__POLLET | UV__POLLIN | UV__POLLOUT;
+    else
+      e.events = uv__io_pending_events(w);
+
     e.data = w->fd;
 
     if (uv__io_current_events(w) == 0)
