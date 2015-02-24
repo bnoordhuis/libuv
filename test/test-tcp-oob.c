@@ -33,7 +33,6 @@ static uv_tcp_t client_handle;
 static uv_tcp_t peer_handle;
 static uv_idle_t idle;
 static uv_connect_t connect_req;
-static uv_thread_t oob_thread;
 static int ticks;
 static const int kMaxTicks = 10;
 
@@ -58,9 +57,6 @@ static void idle_cb(uv_idle_t* idle) {
 
 static void read_cb(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf) {
   ASSERT(nread > 0);
-
-  uv_thread_join(&oob_thread);
-
   ASSERT(0 == uv_idle_start(&idle, idle_cb));
 }
 
@@ -71,9 +67,13 @@ static void connect_cb(uv_connect_t* req, int status) {
 }
 
 
-static void send_oob_data(void* arg) {
+static void connection_cb(uv_stream_t* handle, int status) {
   int r;
   uv_os_fd_t fd;
+
+  ASSERT(0 == status);
+  ASSERT(0 == uv_accept(handle, (uv_stream_t*) &peer_handle));
+  ASSERT(0 == uv_read_start((uv_stream_t*) &peer_handle, alloc_cb, read_cb));
 
   /* Send some OOB data */
   ASSERT(0 == uv_fileno((uv_handle_t*) &client_handle, &fd));
@@ -85,23 +85,12 @@ static void send_oob_data(void* arg) {
   } while (r < 0 && errno == EINTR);
   ASSERT(5 == r);
 
-  usleep(500);
-
   do {
     r = send(fd, "hello", 5, MSG_OOB);
   } while (r < 0 && errno == EINTR);
   ASSERT(5 == r);
 
   ASSERT(0 == uv_stream_set_blocking((uv_stream_t*) &client_handle, 0));
-}
-
-
-static void connection_cb(uv_stream_t* handle, int status) {
-  ASSERT(0 == status);
-  ASSERT(0 == uv_accept(handle, (uv_stream_t*) &peer_handle));
-  ASSERT(0 == uv_read_start((uv_stream_t*) &peer_handle, alloc_cb, read_cb));
-
-  uv_thread_create(&oob_thread, send_oob_data, NULL);
 }
 
 
@@ -127,6 +116,8 @@ TEST_IMPL(tcp_oob) {
                              (const struct sockaddr*) &addr,
                              connect_cb));
   ASSERT(0 == uv_run(loop, UV_RUN_DEFAULT));
+
+  ASSERT(ticks == kMaxTicks);
 
   MAKE_VALGRIND_HAPPY();
   return 0;
