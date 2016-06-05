@@ -28,14 +28,9 @@
 #include "handle-inl.h"
 
 
-/* The number of milliseconds in one second. */
-#define UV__MILLISEC 1000
-
-
-void uv_update_time(uv_loop_t* loop) {
-  uint64_t new_time = uv__hrtime(UV__MILLISEC);
-  assert(new_time >= loop->time);
-  loop->time = new_time;
+uint64_t uv__current_time_in_ms(void) {
+  static const double scale = 1e3;  /* Milliseconds per second. */
+  return uv__hrtime(scale);
 }
 
 
@@ -99,7 +94,7 @@ int uv_timer_start(uv_timer_t* handle, uv_timer_cb timer_cb, uint64_t timeout,
     uv_timer_stop(handle);
 
   handle->timer_cb = timer_cb;
-  handle->due = get_clamped_due_time(loop->time, timeout);
+  handle->due = get_clamped_due_time(uv__now(loop), timeout);
   handle->repeat = repeat;
   uv__handle_start(handle);
 
@@ -153,7 +148,7 @@ uint64_t uv_timer_get_repeat(const uv_timer_t* handle) {
 }
 
 
-DWORD uv__next_timeout(const uv_loop_t* loop) {
+DWORD uv__next_timeout(uv_loop_t* loop) {
   uv_timer_t* timer;
   int64_t delta;
 
@@ -163,7 +158,7 @@ DWORD uv__next_timeout(const uv_loop_t* loop) {
    */
   timer = RB_MIN(uv_timer_tree_s, &((uv_loop_t*)loop)->timers);
   if (timer) {
-    delta = timer->due - loop->time;
+    delta = timer->due - uv__now(loop);
     if (delta >= UINT_MAX - 1) {
       /* A timeout value of UINT_MAX means infinite, so that's no good. */
       return UINT_MAX - 1;
@@ -185,7 +180,7 @@ void uv_process_timers(uv_loop_t* loop) {
 
   /* Call timer callbacks */
   for (timer = RB_MIN(uv_timer_tree_s, &loop->timers);
-       timer != NULL && timer->due <= loop->time;
+       timer != NULL && timer->due <= uv__now(loop);
        timer = RB_MIN(uv_timer_tree_s, &loop->timers)) {
 
     uv_timer_stop(timer);

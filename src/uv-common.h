@@ -123,6 +123,10 @@ int uv__socket_sockopt(uv_handle_t* handle, int optname, int* value);
 
 void uv__fs_scandir_cleanup(uv_fs_t* req);
 
+uint64_t uv__current_time_in_ms(void);
+uint64_t uv__now(uv_loop_t* loop);
+void uv__update_time(uv_loop_t* loop);
+
 #define uv__has_active_reqs(loop)                                             \
   (QUEUE_EMPTY(&(loop)->active_reqs) == 0)
 

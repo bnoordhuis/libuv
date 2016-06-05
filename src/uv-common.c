@@ -425,10 +425,28 @@ void uv_stop(uv_loop_t* loop) {
 }
 
 
+/* TODO(bnoordhuis) Make |loop| argument non-const in v2.0. */
 uint64_t uv_now(const uv_loop_t* loop) {
+  return uv__now((uv_loop_t*) loop);
+}
+
+
+void uv_update_time(uv_loop_t* loop) {
+  uv__update_time(loop);
+}
+
+
+uint64_t uv__now(uv_loop_t* loop) {
+  if (loop->time == (uint64_t) -1)
+    loop->time = uv__current_time_in_ms();
+
   return loop->time;
 }
 
+
+void uv__update_time(uv_loop_t* loop) {
+  loop->time = -1;  /* Invalidate cached timestamp. */
+}
 
 
 size_t uv__count_bufs(const uv_buf_t bufs[], unsigned int nbufs) {

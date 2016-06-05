@@ -291,6 +291,7 @@ int uv_backend_fd(const uv_loop_t* loop) {
 }
 
 
+/* TODO(bnoordhuis) Make |loop| argument non-const in v2.0. */
 int uv_backend_timeout(const uv_loop_t* loop) {
   if (loop->stop_flag != 0)
     return 0;
@@ -307,7 +308,7 @@ int uv_backend_timeout(const uv_loop_t* loop) {
   if (loop->closing_handles)
     return 0;
 
-  return uv__next_timeout(loop);
+  return uv__next_timeout((uv_loop_t*) loop);
 }
 
 
@@ -329,11 +330,9 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   int ran_pending;
 
   r = uv__loop_alive(loop);
-  if (!r)
-    uv__update_time(loop);
+  uv__update_time(loop);
 
   while (r != 0 && loop->stop_flag == 0) {
-    uv__update_time(loop);
     uv__run_timers(loop);
     ran_pending = uv__run_pending(loop);
     uv__run_idle(loop);
@@ -363,6 +362,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     r = uv__loop_alive(loop);
     if (mode == UV_RUN_ONCE || mode == UV_RUN_NOWAIT)
       break;
+
+    uv__update_time(loop);
   }
 
   /* The if statement lets gcc compile it to a conditional store. Avoids
@@ -375,8 +376,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 }
 
 
-void uv_update_time(uv_loop_t* loop) {
-  uv__update_time(loop);
+uint64_t uv__current_time_in_ms(void) {
+  return uv__hrtime(UV_CLOCK_FAST) / 1000000;
 }
 
 

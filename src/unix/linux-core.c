@@ -244,7 +244,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   }
 
   assert(timeout >= -1);
-  base = loop->time;
+  base = uv__now(loop);
   count = 48; /* Benchmarks suggest this gives the best throughput. */
   real_timeout = timeout;
 
@@ -280,11 +280,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (pthread_sigmask(SIG_UNBLOCK, &sigset, NULL))
         abort();
 
-    /* Update loop->time unconditionally. It's tempting to skip the update when
-     * timeout == 0 (i.e. non-blocking poll) but there is no guarantee that the
-     * operating system didn't reschedule our process while in the syscall.
-     */
-    SAVE_ERRNO(uv__update_time(loop));
+    uv__update_time(loop);
 
     if (nfds == 0) {
       assert(timeout != -1);
@@ -410,7 +406,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 update_timeout:
     assert(timeout > 0);
 
-    real_timeout -= (loop->time - base);
+    real_timeout -= (uv__now(loop) - base);
     if (real_timeout <= 0)
       return;
 

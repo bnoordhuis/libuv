@@ -220,7 +220,7 @@ int uv_pipe_listen(uv_pipe_t* handle, int backlog, uv_connection_cb cb);
 
 /* timer */
 void uv__run_timers(uv_loop_t* loop);
-int uv__next_timeout(const uv_loop_t* loop);
+int uv__next_timeout(uv_loop_t* loop);
 
 /* signal */
 void uv__signal_close(uv_signal_t* handle);
@@ -303,12 +303,6 @@ UV_UNUSED(static void uv__req_init(uv_loop_t* loop,
 }
 #define uv__req_init(loop, req, type) \
   uv__req_init((loop), (uv_req_t*)(req), (type))
-
-UV_UNUSED(static void uv__update_time(uv_loop_t* loop)) {
-  /* Use a fast time source if available.  We only need millisecond precision.
-   */
-  loop->time = uv__hrtime(UV_CLOCK_FAST) / 1000000;
-}
 
 UV_UNUSED(static char* uv__basename_r(const char* path)) {
   char* s;

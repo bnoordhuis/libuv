@@ -134,11 +134,7 @@ int uv_loop_init(uv_loop_t* loop) {
   if (loop->iocp == NULL)
     return uv_translate_sys_error(GetLastError());
 
-  /* To prevent uninitialized memory access, loop->time must be initialized
-   * to zero before calling uv_update_time for the first time.
-   */
-  loop->time = 0;
-  uv_update_time(loop);
+  uv__update_time(loop);
 
   QUEUE_INIT(&loop->wq);
   QUEUE_INIT(&loop->handle_queue);
@@ -231,6 +227,7 @@ int uv_backend_fd(const uv_loop_t* loop) {
 }
 
 
+/* TODO(bnoordhuis) Make |loop| argument non-const in v2.0. */
 int uv_backend_timeout(const uv_loop_t* loop) {
   if (loop->stop_flag != 0)
     return 0;
@@ -247,7 +244,7 @@ int uv_backend_timeout(const uv_loop_t* loop) {
   if (loop->idle_handles)
     return 0;
 
-  return uv__next_timeout(loop);
+  return uv__next_timeout((uv__loop_t*) loop);
 }
 
 
@@ -259,7 +256,7 @@ static void uv_poll(uv_loop_t* loop, DWORD timeout) {
   int repeat;
   uint64_t timeout_time;
 
-  timeout_time = loop->time + timeout;
+  timeout_time = uv__now(loop) + timeout;
 
   for (repeat = 0; ; repeat++) {
     GetQueuedCompletionStatus(loop->iocp,
@@ -285,8 +282,8 @@ static void uv_poll(uv_loop_t* loop, DWORD timeout) {
        * Make sure that the desired timeout target time is reached.
        */
       uv_update_time(loop);
-      if (timeout_time > loop->time) {
-        timeout = (DWORD)(timeout_time - loop->time);
+      if (timeout_time > uv__now(loop)) {
+        timeout = (DWORD)(timeout_time - uv__now(loop));
         /* The first call to GetQueuedCompletionStatus should return very
          * close to the target time and the second should reach it, but
          * this is not stated in the documentation. To make sure a busy
@@ -311,7 +308,7 @@ static void uv_poll_ex(uv_loop_t* loop, DWORD timeout) {
   int repeat;
   uint64_t timeout_time;
 
-  timeout_time = loop->time + timeout;
+  timeout_time = uv__now(loop) + timeout;
 
   for (repeat = 0; ; repeat++) {
     success = pGetQueuedCompletionStatusEx(loop->iocp,
@@ -340,8 +337,8 @@ static void uv_poll_ex(uv_loop_t* loop, DWORD timeout) {
        * Make sure that the desired timeout target time is reached.
        */
       uv_update_time(loop);
-      if (timeout_time > loop->time) {
-        timeout = (DWORD)(timeout_time - loop->time);
+      if (timeout_time > uv__now(loop)) {
+        timeout = (DWORD)(timeout_time - uv__now(loop));
         /* The first call to GetQueuedCompletionStatus should return very
          * close to the target time and the second should reach it, but
          * this is not stated in the documentation. To make sure a busy
