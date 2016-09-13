@@ -173,18 +173,8 @@ int uv__tcp_connect(uv_connect_t* req,
    * is 0 (for example, on Android 4.3, OnePlus phone A0001_12_150227)
    * and actually the tcp three-way handshake is completed.
    */
-  if (r == -1 && errno != 0) {
-    if (errno == EINPROGRESS)
-      ; /* not an error */
-    else if (errno == ECONNREFUSED)
-    /* If we get a ECONNREFUSED wait until the next tick to report the
-     * error. Solaris wants to report immediately--other unixes want to
-     * wait.
-     */
-      handle->delayed_error = -errno;
-    else
-      return -errno;
-  }
+  if (r == -1 && errno != 0 && errno != EINPROGRESS)
+    handle->delayed_error = -errno;
 
   uv__req_init(handle->loop, req, UV_CONNECT);
   req->cb = cb;

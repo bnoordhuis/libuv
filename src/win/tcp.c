@@ -340,13 +340,7 @@ static int uv_tcp_try_bind(uv_tcp_t* handle,
   r = bind(handle->socket, addr, addrlen);
 
   if (r == SOCKET_ERROR) {
-    err = WSAGetLastError();
-    if (err == WSAEADDRINUSE) {
-      /* Some errors are not to be reported until connect() or listen() */
-      handle->delayed_error = err;
-    } else {
-      return err;
-    }
+    handle->delayed_error = WSAGetLastError();
   }
 
   handle->flags |= UV_HANDLE_BOUND;

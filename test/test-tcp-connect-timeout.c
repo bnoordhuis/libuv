@@ -27,6 +27,7 @@
 
 static int connect_cb_called;
 static int close_cb_called;
+static int netunreach_errors;
 
 static uv_connect_t connect_req;
 static uv_timer_t timer;
@@ -39,8 +40,10 @@ static void close_cb(uv_handle_t* handle);
 
 static void connect_cb(uv_connect_t* req, int status) {
   ASSERT(req == &connect_req);
-  ASSERT(status == UV_ECANCELED);
+  ASSERT(status == UV_ECANCELED || status == UV_ENETUNREACH);
   connect_cb_called++;
+  if (status == UV_ENETUNREACH)
+    netunreach_errors++;
 }
 
 
@@ -79,13 +82,15 @@ TEST_IMPL(tcp_connect_timeout) {
                      &conn,
                      (const struct sockaddr*) &addr,
                      connect_cb);
-  if (r == UV_ENETUNREACH)
-    RETURN_SKIP("Network unreachable.");
   ASSERT(r == 0);
 
   r = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
   ASSERT(r == 0);
 
   MAKE_VALGRIND_HAPPY();
+
+  if (netunreach_errors > 0)
+    RETURN_SKIP("Network unreachable.");
+
   return 0;
 }
