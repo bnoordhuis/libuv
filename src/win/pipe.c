@@ -890,10 +890,14 @@ int uv_pipe_accept(uv_pipe_t* server, uv_stream_t* client) {
       return WSAEWOULDBLOCK;
     }
 
-    /* Initialize the client handle and copy the pipeHandle to the client */
-    uv_pipe_connection_init(pipe_client);
-    pipe_client->handle = req->pipeHandle;
-    pipe_client->flags |= UV_HANDLE_READABLE | UV_HANDLE_WRITABLE;
+    if (pipe_client == NULL) {
+      CloseHandle(req->pipeHandle);
+    } else {
+      /* Initialize the client handle and copy the pipeHandle to the client */
+      uv_pipe_connection_init(pipe_client);
+      pipe_client->handle = req->pipeHandle;
+      pipe_client->flags |= UV_HANDLE_READABLE | UV_HANDLE_WRITABLE;
+    }
 
     /* Prepare the req to pick up a new connection */
     server->pipe.serv.pending_accepts = req->next_pending;

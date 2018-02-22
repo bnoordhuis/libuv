@@ -123,7 +123,8 @@ API
     This call is used in conjunction with :c:func:`uv_listen` to accept incoming
     connections. Call this function after receiving a :c:type:`uv_connection_cb`
     to accept the connection. Before calling this function the client handle must
-    be initialized. < 0 return value indicates an error.
+    be initialized. < 0 return value indicates an error.  Passing `NULL` for
+    `client` will close the pending connection and return 0.
 
     When the :c:type:`uv_connection_cb` callback is called it is guaranteed that
     this function will complete successfully the first time. If you attempt to use

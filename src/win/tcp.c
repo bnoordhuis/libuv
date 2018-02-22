@@ -667,17 +667,24 @@ int uv_tcp_accept(uv_tcp_t* server, uv_tcp_t* client) {
     family = AF_INET;
   }
 
-  err = uv_tcp_set_socket(client->loop,
-                          client,
-                          req->accept_socket,
-                          family,
-                          0);
-  if (err) {
+  if (client == NULL) {
     closesocket(req->accept_socket);
+    err = 0;
   } else {
-    uv_connection_init((uv_stream_t*) client);
-    /* AcceptEx() implicitly binds the accepted socket. */
-    client->flags |= UV_HANDLE_BOUND | UV_HANDLE_READABLE | UV_HANDLE_WRITABLE;
+    err = uv_tcp_set_socket(client->loop,
+                            client,
+                            req->accept_socket,
+                            family,
+                            0);
+    if (err) {
+      closesocket(req->accept_socket);
+    } else {
+      uv_connection_init((uv_stream_t*) client);
+      /* AcceptEx() implicitly binds the accepted socket. */
+      client->flags |= UV_HANDLE_BOUND;
+      client->flags |= UV_HANDLE_READABLE;
+      client->flags |= UV_HANDLE_WRITABLE;
+    }
   }
 
   /* Prepare the req to pick up a new connection */
@@ -1205,6 +1212,11 @@ int uv_tcp_import(uv_tcp_t* tcp, uv__ipc_socket_info_ex* socket_info_ex,
 
   if (socket == INVALID_SOCKET) {
     return WSAGetLastError();
+  }
+
+  if (tcp == NULL) {
+    closesocket(socket);
+    return 0;
   }
 
   err = uv_tcp_set_socket(tcp->loop,
