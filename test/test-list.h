@@ -332,6 +332,7 @@ TEST_DECLARE   (fs_write_alotof_bufs)
 TEST_DECLARE   (fs_write_alotof_bufs_with_offset)
 TEST_DECLARE   (fs_file_pos_after_op_with_offset)
 TEST_DECLARE   (fs_null_req)
+TEST_DECLARE   (fs_largefile)
 #ifdef _WIN32
 TEST_DECLARE   (fs_exclusive_sharing_mode)
 #endif
@@ -861,6 +862,7 @@ TASK_LIST_START
   TEST_ENTRY  (fs_read_write_null_arguments)
   TEST_ENTRY  (fs_file_pos_after_op_with_offset)
   TEST_ENTRY  (fs_null_req)
+  TEST_ENTRY  (fs_largefile)
 #ifdef _WIN32
   TEST_ENTRY  (fs_exclusive_sharing_mode)
 #endif

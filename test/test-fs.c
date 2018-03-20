@@ -3116,6 +3116,40 @@ TEST_IMPL(fs_null_req) {
   return 0;
 }
 
+TEST_IMPL(fs_largefile) {
+  static const unsigned long N = 1UL << 31;
+  uv_buf_t buf;
+  uv_fs_t req;
+  int fd;
+
+  unlink("test_largefile");
+  buf = uv_buf_init("1", 1);
+
+  fd = uv_fs_open(NULL,
+                  &req,
+                  "test_largefile",
+                  O_RDWR | O_CREAT,
+                  S_IWUSR | S_IRUSR,
+                  NULL);
+  ASSERT(fd >= 0);
+  uv_fs_req_cleanup(&req);
+
+  ASSERT(1 == uv_fs_write(NULL, &req, fd, &buf, 1, N, NULL));
+  uv_fs_req_cleanup(&req);
+
+  ASSERT(0 == uv_fs_fstat(NULL, &req, fd, NULL));
+  ASSERT(N + 1 == req.statbuf.st_size);
+  uv_fs_req_cleanup(&req);
+
+  ASSERT(0 == uv_fs_close(NULL, &req, fd, NULL));
+  uv_fs_req_cleanup(&req);
+
+  unlink("test_largefile");
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
 #ifdef _WIN32
 TEST_IMPL(fs_exclusive_sharing_mode) {
   int r;
