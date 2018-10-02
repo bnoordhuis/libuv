@@ -271,6 +271,33 @@ int uv__inotify_rm_watch(int fd, int32_t wd) {
 }
 
 
+int uv__io_setup(unsigned nevents, aio_context_t* ctxp) {
+#if defined(__NR_io_setup)
+  return syscall(__NR_io_setup, nevents, ctxp);
+#else
+  return errno = ENOSYS, -1;
+#endif
+}
+
+
+int uv__io_destroy(aio_context_t ctx) {
+#if defined(__NR_io_destroy)
+  return syscall(__NR_io_destroy, ctx);
+#else
+  return errno = ENOSYS, -1;
+#endif
+}
+
+
+int uv__io_submit(aio_context_t ctx, long nr, struct iocb** iocbpp) {
+#if defined(__NR_io_submit)
+  return syscall(__NR_io_submit, ctx, nr, iocbpp);
+#else
+  return errno = ENOSYS, -1;
+#endif
+}
+
+
 int uv__pipe2(int pipefd[2], int flags) {
 #if defined(__NR_pipe2)
   int result;

@@ -30,6 +30,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/socket.h>
+#include <linux/aio_abi.h>
 
 #if defined(__alpha__)
 # define UV__O_CLOEXEC        0x200000
@@ -100,6 +101,9 @@ int uv__inotify_init(void);
 int uv__inotify_init1(int flags);
 int uv__inotify_add_watch(int fd, const char* path, uint32_t mask);
 int uv__inotify_rm_watch(int fd, int32_t wd);
+int uv__io_setup(unsigned nevents, aio_context_t* ctxp);
+int uv__io_destroy(aio_context_t ctx);
+int uv__io_submit(aio_context_t ctx, long nr, struct iocb** iocbpp);
 int uv__pipe2(int pipefd[2], int flags);
 int uv__recvmmsg(int fd,
                  struct uv__mmsghdr* mmsg,

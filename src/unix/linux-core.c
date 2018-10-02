@@ -74,6 +74,22 @@
 # define CLOCK_BOOTTIME 7
 #endif
 
+#ifndef IOCB_CMD_POLL
+#define IOCB_CMD_POLL 5
+#endif
+
+struct uv__aio_ring {
+  unsigned id;
+  unsigned nr;
+  unsigned volatile head;
+  unsigned volatile tail;
+  unsigned magic;
+  unsigned compat_features;
+  unsigned incompat_features;
+  unsigned header_length;
+  struct io_event events[1024];
+};
+
 static int read_models(unsigned int numcpus, uv_cpu_info_t* ci);
 static int read_times(FILE* statfile_fp,
                       unsigned int numcpus,
@@ -83,26 +99,62 @@ static unsigned long read_cpufreq(unsigned int cpunum);
 
 
 int uv__platform_loop_init(uv_loop_t* loop) {
-  int fd;
+  static int no_iocb_md_poll;
+  struct uv__aio_ring* ring;
+  struct iocb* iocbp;
+  struct iocb iocb;
+  int epfd;
 
-  fd = epoll_create1(EPOLL_CLOEXEC);
+  epfd = epoll_create1(EPOLL_CLOEXEC);
 
   /* epoll_create1() can fail either because it's not implemented (old kernel)
    * or because it doesn't understand the EPOLL_CLOEXEC flag.
    */
-  if (fd == -1 && (errno == ENOSYS || errno == EINVAL)) {
-    fd = epoll_create(256);
+  if (epfd == -1 && (errno == ENOSYS || errno == EINVAL)) {
+    epfd = epoll_create(256);
 
-    if (fd != -1)
-      uv__cloexec(fd, 1);
+    if (epfd != -1)
+      uv__cloexec(epfd, 1);
   }
 
-  loop->backend_fd = fd;
+  loop->backend_fd = epfd;
   loop->inotify_fd = -1;
   loop->inotify_watchers = NULL;
+  loop->linux_aio = NULL;
 
-  if (fd == -1)
+  if (epfd == -1)
     return UV__ERR(errno);
+
+  if (no_iocb_md_poll)
+    return 0;
+
+  ring = NULL;
+  if (uv__io_setup(ARRAY_SIZE(ring->events), (aio_context_t*) &ring)) {
+    no_iocb_md_poll = 1;
+    return 0;
+  }
+
+  if (ring->magic != 0xA10A10A1 ||
+      ring->header_length != (char*) ring->events - (char*) ring) {
+    uv__io_destroy((aio_context_t) ring);
+    no_iocb_md_poll = 1;
+    return 0;
+  }
+
+  memset(&iocb, 0, sizeof(iocb));
+  iocb.aio_buf = EPOLLIN;
+  iocb.aio_data = epfd;
+  iocb.aio_fildes = epfd;
+  iocb.aio_lio_opcode = IOCB_CMD_POLL;
+
+  iocbp = &iocb;
+  if (1 != uv__io_submit((aio_context_t) ring, 1, &iocbp)) {
+    uv__io_destroy((aio_context_t) ring);
+    no_iocb_md_poll = 1;
+    return 0;
+  }
+
+  loop->linux_aio = ring;
 
   return 0;
 }
@@ -186,6 +238,77 @@ int uv__io_check_fd(uv_loop_t* loop, int fd) {
 }
 
 
+static void uv__io_add_epoll(uv_loop_t* loop, uv__io_t* w) {
+  struct epoll_event e;
+  int op;
+
+  assert(w->pevents != 0);
+  assert(w->fd >= 0);
+  assert(w->fd < (int) loop->nwatchers);
+
+  e.events = w->pevents;
+  e.data.fd = w->fd;
+
+  op = EPOLL_CTL_MOD;
+  if (w->events == 0)
+    op = EPOLL_CTL_ADD;
+
+  /* TODO(bnoordhuis) Future optimization: do EPOLL_CTL_MOD lazily when we stop
+   * watching events. Postpone the syscall until epoll_wait() reports events
+   * we're no longer interested in.
+   */
+  if (epoll_ctl(loop->backend_fd, op, w->fd, &e)) {
+    assert(errno == EEXIST);
+    assert(op == EPOLL_CTL_ADD);
+
+    /* We've reactivated a file descriptor that's been watched before. */
+    if (epoll_ctl(loop->backend_fd, EPOLL_CTL_MOD, w->fd, &e))
+      abort();
+  }
+
+  w->events = w->pevents;
+}
+
+
+static void uv__io_add_aio(uv_loop_t* loop,
+                           int nfds,
+                           struct iocb (*iocb)[256]) {
+  struct iocb* iocbp[ARRAY_SIZE(*iocb)];
+  uv__io_t* w;
+  int start;
+  int fd;
+  int n;
+  int i;
+
+  for (i = 0; i < nfds; i++)
+    iocbp[i] = &(*iocb)[i];
+
+  start = 0;
+
+  while (nfds > 0) {
+    n = uv__io_submit((aio_context_t) loop->linux_aio, nfds, &iocbp[start]);
+
+    if (n == nfds)
+      break;
+
+    if (n < 0) {
+      assert(errno == EINVAL);
+      n = 0;
+    }
+
+    fd = (*iocb)[start + n].aio_fildes;
+    w = loop->watchers[fd];
+
+    /* TODO(bnoordhuis) Mark the fd as incompatible so we
+     * don't keep trying to resubmit it with io_submit().
+     */
+    uv__io_add_epoll(loop, w);
+
+    start = n + 1;
+    nfds -= n + 1;
+  }
+}
+
 void uv__io_poll(uv_loop_t* loop, int timeout) {
   /* A bug in kernels < 2.6.37 makes timeouts larger than ~30 minutes
    * effectively infinite on 32 bits architectures.  To avoid blocking
@@ -198,7 +321,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   static const int max_safe_timeout = 1789569;
   struct epoll_event events[1024];
   struct epoll_event* pe;
-  struct epoll_event e;
+  struct iocb iocb[256];
   int real_timeout;
   QUEUE* q;
   uv__io_t* w;
@@ -207,16 +330,19 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   uint64_t base;
   int have_signals;
   int nevents;
+  int use_epoll;
   int count;
   int nfds;
   int fd;
-  int op;
   int i;
 
   if (loop->nfds == 0) {
     assert(QUEUE_EMPTY(&loop->watcher_queue));
     return;
   }
+
+  nfds = 0;
+  use_epoll = (loop->linux_aio == NULL);
 
   while (!QUEUE_EMPTY(&loop->watcher_queue)) {
     q = QUEUE_HEAD(&loop->watcher_queue);
@@ -228,30 +354,25 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     assert(w->fd >= 0);
     assert(w->fd < (int) loop->nwatchers);
 
-    e.events = w->pevents;
-    e.data.fd = w->fd;
+    if (use_epoll) {
+      uv__io_add_epoll(loop, w);
+    } else {
+      memset(&iocb[nfds], 0, sizeof(iocb[nfds]));
+      iocb[nfds].aio_buf = w->pevents;
+      iocb[nfds].aio_data = w->fd;
+      iocb[nfds].aio_fildes = w->fd;
+      iocb[nfds].aio_lio_opcode = IOCB_CMD_POLL;
+      nfds++;
 
-    if (w->events == 0)
-      op = EPOLL_CTL_ADD;
-    else
-      op = EPOLL_CTL_MOD;
-
-    /* XXX Future optimization: do EPOLL_CTL_MOD lazily if we stop watching
-     * events, skip the syscall and squelch the events after epoll_wait().
-     */
-    if (epoll_ctl(loop->backend_fd, op, w->fd, &e)) {
-      if (errno != EEXIST)
-        abort();
-
-      assert(op == EPOLL_CTL_ADD);
-
-      /* We've reactivated a file descriptor that's been watched before. */
-      if (epoll_ctl(loop->backend_fd, EPOLL_CTL_MOD, w->fd, &e))
-        abort();
+      if (nfds == (int) ARRAY_SIZE(iocb)) {
+        uv__io_add_aio(loop, nfds, &iocb);
+        nfds = 0;
+      }
     }
-
-    w->events = w->pevents;
   }
+
+  if (nfds > 0)
+    uv__io_add_aio(loop, nfds, &iocb);
 
   psigset = NULL;
   if (loop->flags & UV_LOOP_BLOCK_SIGPROF) {
