@@ -45,11 +45,9 @@ libuv_la_SOURCES = src/fs-poll.c \
                    src/version.c
 
 if SUNOS
-if GCC
 # Can't be turned into a CC_CHECK_CFLAGS in configure.ac, it makes compilers
 # on other platforms complain that the argument is unused during compilation.
 libuv_la_CFLAGS += -pthreads
-endif
 endif
 
 if WINNT
@@ -143,19 +141,13 @@ check_PROGRAMS = test/run-tests
 if OS390
 test_run_tests_CFLAGS =
 else
-if GCC
 test_run_tests_CFLAGS = -Wno-long-long
-else
-test_run_tests_CFLAGS =
-endif
 endif
 
 if SUNOS
-if GCC
 # Can't be turned into a CC_CHECK_CFLAGS in configure.ac, it makes compilers
 # on other platforms complain that the argument is unused during compilation.
 test_run_tests_CFLAGS += -pthreads
-endif
 endif
 
 test_run_tests_LDFLAGS =
@@ -333,9 +325,7 @@ test_run_tests_CFLAGS += -D_GNU_SOURCE
 endif
 
 if SUNOS
-test_run_tests_CFLAGS += -D__EXTENSIONS__ \
-                         -D_XOPEN_SOURCE=500 \
-                         -D_REENTRANT
+test_run_tests_CFLAGS += -D__EXTENSIONS__ -D_XOPEN_SOURCE=500
 endif
 
 if OS390
@@ -473,9 +463,7 @@ endif
 
 if SUNOS
 uvinclude_HEADERS += include/uv/sunos.h
-libuv_la_CFLAGS += -D__EXTENSIONS__ \
-                   -D_XOPEN_SOURCE=500 \
-                   -D_REENTRANT
+libuv_la_CFLAGS += -D__EXTENSIONS__ -D_XOPEN_SOURCE=500
 libuv_la_SOURCES += src/unix/no-proctitle.c \
                     src/unix/sunos.c
 endif
