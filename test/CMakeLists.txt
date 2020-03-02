@@ -37,6 +37,7 @@ add_test(
 list(APPEND uv_test_sources
     $<$<PLATFORM_ID:Windows>:${PROJECT_SOURCE_DIR}/src/win/snprintf.c>
     $<$<PLATFORM_ID:Windows>:runner-win.c>
+    $<$<BOOL:${UNIX}>:runner-unix.c>
     blackhole-server.c
     echo-server.c
     run-tests.c
