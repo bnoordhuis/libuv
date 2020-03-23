@@ -1694,6 +1694,11 @@ TEST_IMPL(spawn_reads_child_path) {
   static const char dyld_path_var[] = "LD_LIBRARY_PATH";
 #endif
 
+  {
+    const char* path = getenv("PATH");
+    if (path == 0) path = "(no path)";
+    printf("PATH=%s\n", path);
+  }
   /* Set up the process, but make sure that the file to run is relative and
    * requires a lookup into PATH. */
   init_process_options("spawn_helper1", exit_cb);
