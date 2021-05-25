@@ -57,7 +57,8 @@ extern int snprintf(char*, size_t, const char*, ...);
 #define container_of(ptr, type, member) \
   ((type *) ((char *) (ptr) - offsetof(type, member)))
 
-#ifdef __GNUC__  /* Also covers __clang__ and __INTEL_COMPILER. */
+/* Android NDK 20 doesn't seem to know static_assert. */
+#if defined(__GNUC__) && !defined(__ANDROID__)
 #define STATIC_ASSERT(expr) static_assert(expr, #expr)
 #else
 #define STATIC_ASSERT(expr)                                                   \
