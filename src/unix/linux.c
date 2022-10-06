@@ -151,35 +151,20 @@
 # define CLOCK_BOOTTIME 7
 #endif
 
-#define CAST(p) ((struct watcher_root*)(p))
-
-struct watcher_list {
-  RB_ENTRY(watcher_list) entry;
-  QUEUE watchers;
-  int iterating;
-  char* path;
-  int wd;
+struct inotify_watchers {
+  unsigned cap;  /* Capacity a.k.a. load factor; cap < len */
+  unsigned len;
+  QUEUE vec[];
 };
 
-struct watcher_root {
-  struct watcher_list* rbh_root;
-};
-
-static void uv__inotify_read(uv_loop_t* loop,
-                             uv__io_t* w,
-                             unsigned int revents);
-static int compare_watchers(const struct watcher_list* a,
-                            const struct watcher_list* b);
-static void maybe_free_watcher_list(struct watcher_list* w,
-                                    uv_loop_t* loop);
+static void uv__inotify_fork(int fd, struct inotify_watchers* w);
+static int uv__inotify_init(uv_loop_t* loop, int* fd, uv__io_t* w);
 static int read_models(unsigned int numcpus, uv_cpu_info_t* ci);
 static int read_times(FILE* statfile_fp,
                       unsigned int numcpus,
                       uv_cpu_info_t* ci);
 static void read_speeds(unsigned int numcpus, uv_cpu_info_t* ci);
 static uint64_t read_cpufreq(unsigned int cpunum);
-
-RB_GENERATE_STATIC(watcher_root, watcher_list, entry, compare_watchers)
 
 
 ssize_t
@@ -239,10 +224,11 @@ int uv__platform_loop_init(uv_loop_t* loop) {
 
 
 int uv__io_fork(uv_loop_t* loop) {
+  struct inotify_watchers* w;
   int err;
-  void* old_watchers;
 
-  old_watchers = loop->inotify_watchers;
+  w = loop->inotify_watchers;
+  loop->inotify_watchers = NULL;
 
   uv__close(loop->backend_fd);
   loop->backend_fd = -1;
@@ -252,7 +238,19 @@ int uv__io_fork(uv_loop_t* loop) {
   if (err)
     return err;
 
-  return uv__inotify_fork(loop, old_watchers);
+  if (w == NULL)
+    return 0;
+
+  err = uv__inotify_init(loop, &loop->inotify_fd, &loop->inotify_read_watcher);
+  if (err) {
+    uv__free(w);
+    return err;
+  }
+
+  uv__inotify_fork(loop->inotify_fd, w);
+  loop->inotify_watchers = w;
+
+  return 0;
 }
 
 
@@ -261,6 +259,8 @@ void uv__platform_loop_delete(uv_loop_t* loop) {
   uv__io_stop(loop, &loop->inotify_read_watcher, POLLIN);
   uv__close(loop->inotify_fd);
   loop->inotify_fd = -1;
+  uv__free(loop->inotify_watchers);
+  loop->inotify_watchers = NULL;
 }
 
 
@@ -1388,111 +1388,175 @@ void uv_loadavg(double avg[3]) {
 }
 
 
-static int compare_watchers(const struct watcher_list* a,
-                            const struct watcher_list* b) {
-  if (a->wd < b->wd) return -1;
-  if (a->wd > b->wd) return 1;
-  return 0;
+/* Adapted from https://burtleburtle.net/, public domain. */
+static unsigned hash(unsigned h) {
+  h -= h << 6;
+  h ^= h >> 17;
+  h -= h << 9;
+  h ^= h << 4;
+  h -= h << 3;
+  h ^= h << 10;
+  h ^= h >> 15;
+  return h;
 }
 
 
-static int init_inotify(uv_loop_t* loop) {
-  int fd;
-
-  if (loop->inotify_fd != -1)
-    return 0;
-
-  fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-  if (fd < 0)
-    return UV__ERR(errno);
-
-  loop->inotify_fd = fd;
-  uv__io_init(&loop->inotify_read_watcher, uv__inotify_read, loop->inotify_fd);
-  uv__io_start(loop, &loop->inotify_read_watcher, POLLIN);
-
-  return 0;
-}
-
-
-int uv__inotify_fork(uv_loop_t* loop, void* old_watchers) {
-  /* Open the inotify_fd, and re-arm all the inotify watchers. */
-  int err;
-  struct watcher_list* tmp_watcher_list_iter;
-  struct watcher_list* watcher_list;
-  struct watcher_list tmp_watcher_list;
-  QUEUE queue;
+/* Open addressing with quadratic probing. */
+static QUEUE* probe(struct inotify_watchers* w, int wd) {
+  uv_fs_event_t* h;
+  unsigned i;
+  unsigned j;
+  unsigned m;
   QUEUE* q;
-  uv_fs_event_t* handle;
-  char* tmp_path;
 
-  if (old_watchers != NULL) {
-    /* We must restore the old watcher list to be able to close items
-     * out of it.
-     */
-    loop->inotify_watchers = old_watchers;
+  i = hash(wd);
+  j = 1;
+  m = w->len - 1;
 
-    QUEUE_INIT(&tmp_watcher_list.watchers);
-    /* Note that the queue we use is shared with the start and stop()
-     * functions, making QUEUE_FOREACH unsafe to use. So we use the
-     * QUEUE_MOVE trick to safely iterate. Also don't free the watcher
-     * list until we're done iterating. c.f. uv__inotify_read.
-     */
-    RB_FOREACH_SAFE(watcher_list, watcher_root,
-                    CAST(&old_watchers), tmp_watcher_list_iter) {
-      watcher_list->iterating = 1;
-      QUEUE_MOVE(&watcher_list->watchers, &queue);
-      while (!QUEUE_EMPTY(&queue)) {
-        q = QUEUE_HEAD(&queue);
-        handle = QUEUE_DATA(q, uv_fs_event_t, watchers);
-        /* It's critical to keep a copy of path here, because it
-         * will be set to NULL by stop() and then deallocated by
-         * maybe_free_watcher_list
-         */
-        tmp_path = uv__strdup(handle->path);
-        assert(tmp_path != NULL);
-        QUEUE_REMOVE(q);
-        QUEUE_INSERT_TAIL(&watcher_list->watchers, q);
-        uv_fs_event_stop(handle);
+  for (;;) {
+    q = &w->vec[i & m];
 
-        QUEUE_INSERT_TAIL(&tmp_watcher_list.watchers, &handle->watchers);
-        handle->path = tmp_path;
-      }
-      watcher_list->iterating = 0;
-      maybe_free_watcher_list(watcher_list, loop);
-    }
+    if (QUEUE_EMPTY(q))
+      return q;
 
-    QUEUE_MOVE(&tmp_watcher_list.watchers, &queue);
-    while (!QUEUE_EMPTY(&queue)) {
-        q = QUEUE_HEAD(&queue);
-        QUEUE_REMOVE(q);
-        handle = QUEUE_DATA(q, uv_fs_event_t, watchers);
-        tmp_path = handle->path;
-        handle->path = NULL;
-        err = uv_fs_event_start(handle, handle->cb, tmp_path, 0);
-        uv__free(tmp_path);
-        if (err)
-          return err;
-    }
+    h = QUEUE_DATA(QUEUE_HEAD(q), uv_fs_event_t, watchers);
+    if (h->wd == wd)
+      return q;
+
+    i += j;
+    j += 1;
+  }
+}
+
+
+static int grow(struct inotify_watchers** w) {
+  struct inotify_watchers* x;
+  uv_fs_event_t* h;
+  unsigned len;
+  unsigned cap;
+  QUEUE* q;
+  QUEUE* t;
+
+  cap = 0;
+  len = 32;
+  if (*w != NULL) {
+    cap = (**w).cap;
+    len = (**w).len * 2;
   }
 
+  x = uv__malloc(sizeof(*x) + sizeof(*x->vec) * len);
+  if (x == NULL)
+    return UV_ENOMEM;
+
+  x->cap = cap;
+  x->len = len;
+
+  for (q = x->vec; q != x->vec + len; q++)
+    QUEUE_INIT(q);
+
+  if (*w == NULL)
+    goto done;
+
+  for (q = (**w).vec; q != (**w).vec + (**w).len; q++) {
+    if (QUEUE_EMPTY(q))
+      continue;
+
+    h = QUEUE_DATA(QUEUE_HEAD(q), uv_fs_event_t, watchers);
+    t = probe(x, h->wd);
+    QUEUE_ADD(t, q);
+  }
+
+done:
+
+  *w = x;
+
   return 0;
 }
 
 
-static struct watcher_list* find_watcher(uv_loop_t* loop, int wd) {
-  struct watcher_list w;
-  w.wd = wd;
-  return RB_FIND(watcher_root, CAST(&loop->inotify_watchers), &w);
+static int insert_wd(void** slot, QUEUE* h, int wd) {
+  struct inotify_watchers* w;
+  QUEUE* q;
+
+  /* Resize and rehash when at 80% capacity. Wrong in a non-fatal way for
+   * small values of |len| due to integer math (ex: 8/5*4 is 4, not 6) but
+   * works fine for len >= 16.
+   */
+  w = *slot;
+  if (w == NULL || w->cap > w->len/5 * 4) {
+    if (grow(&w))
+      return UV_ENOMEM;
+    *slot = w;
+  }
+
+  q = probe(w, wd);
+
+  if (QUEUE_EMPTY(q))
+    w->cap += 1;
+
+  QUEUE_INSERT_TAIL(q, h);
+
+  return 0;
 }
 
 
-static void maybe_free_watcher_list(struct watcher_list* w, uv_loop_t* loop) {
-  /* if the watcher_list->watchers is being iterated over, we can't free it. */
-  if ((!w->iterating) && QUEUE_EMPTY(&w->watchers)) {
-    /* No watchers left for this path. Clean up. */
-    RB_REMOVE(watcher_root, CAST(&loop->inotify_watchers), w);
-    inotify_rm_watch(loop->inotify_fd, w->wd);
-    uv__free(w);
+static QUEUE* lookup_wd(void** slot, int wd) {
+  if (*slot == NULL)
+    return NULL;
+
+  return probe(*slot, wd);
+}
+
+
+static int uv__inotify_add_watch(int fd, const char* path) {
+  unsigned events;
+  int wd;
+
+  events = IN_ATTRIB|IN_CREATE|IN_MODIFY|
+           IN_DELETE|IN_DELETE_SELF|
+           IN_MOVE_SELF|IN_MOVED_FROM|IN_MOVED_TO;
+
+  wd = inotify_add_watch(fd, path, events);
+  if (wd == -1)
+    return UV__ERR(errno);
+
+  return wd;
+}
+
+
+/* The inotify fd has been closed at this point and therefore all watch
+ * descriptors have been invalidated. Simply reinsert the handles one by
+ * one and let the chips fall where they may.
+ */
+static void uv__inotify_fork(int fd, struct inotify_watchers* w) {
+  uv_fs_event_t* h;
+  QUEUE all;
+  QUEUE* q;
+
+  QUEUE_INIT(&all);
+  for (q = w->vec; q != w->vec + w->len; q++) {
+    if (QUEUE_EMPTY(q))
+      continue;
+    QUEUE_ADD(&all, q);
+    QUEUE_INIT(q);
+  }
+
+  w->cap = 0;
+
+  while (!QUEUE_EMPTY(&all)) {
+    q = QUEUE_HEAD(&all);
+    h = QUEUE_DATA(q, uv_fs_event_t, watchers);
+    QUEUE_REMOVE(&h->watchers);
+
+    h->wd = uv__inotify_add_watch(fd, h->path);
+    if (h->wd < 0)
+      continue;
+
+    q = probe(w, h->wd);
+    if (QUEUE_EMPTY(q))
+      w->cap += 1;
+
+    QUEUE_INSERT_TAIL(q, &h->watchers);
   }
 }
 
@@ -1501,9 +1565,9 @@ static void uv__inotify_read(uv_loop_t* loop,
                              uv__io_t* dummy,
                              unsigned int events) {
   const struct inotify_event* e;
-  struct watcher_list* w;
   uv_fs_event_t* h;
-  QUEUE queue;
+  QUEUE a;
+  QUEUE b;
   QUEUE* q;
   const char* path;
   ssize_t size;
@@ -1533,43 +1597,52 @@ static void uv__inotify_read(uv_loop_t* loop,
       if (e->mask & ~(IN_ATTRIB|IN_MODIFY))
         events |= UV_RENAME;
 
-      w = find_watcher(loop, e->wd);
-      if (w == NULL)
+      q = lookup_wd(&loop->inotify_watchers, e->wd);
+      if (q == NULL || QUEUE_EMPTY(q))
         continue; /* Stale event, no watchers left. */
 
-      /* inotify does not return the filename when monitoring a single file
-       * for modifications. Repurpose the filename for API compatibility.
-       * I'm not convinced this is a good thing, maybe it should go.
-       */
-      path = e->len ? (const char*) (e + 1) : uv__basename_r(w->path);
+      /* Copy queue in case a callback removes a watcher from the queue. */
+      QUEUE_MOVE(q, &a);
+      QUEUE_INIT(&b);
 
-      /* We're about to iterate over the queue and call user's callbacks.
-       * What can go wrong?
-       * A callback could call uv_fs_event_stop()
-       * and the queue can change under our feet.
-       * So, we use QUEUE_MOVE() trick to safely iterate over the queue.
-       * And we don't free the watcher_list until we're done iterating.
-       *
-       * First,
-       * tell uv_fs_event_stop() (that could be called from a user's callback)
-       * not to free watcher_list.
-       */
-      w->iterating = 1;
-      QUEUE_MOVE(&w->watchers, &queue);
-      while (!QUEUE_EMPTY(&queue)) {
-        q = QUEUE_HEAD(&queue);
+      while (!QUEUE_EMPTY(&a)) {
+        q = QUEUE_HEAD(&a);
         h = QUEUE_DATA(q, uv_fs_event_t, watchers);
 
         QUEUE_REMOVE(q);
-        QUEUE_INSERT_TAIL(&w->watchers, q);
+        QUEUE_INSERT_TAIL(&b, q);
+
+        /* inotify does not return the filename when monitoring a single file
+         * for modifications. Repurpose the filename for API compatibility.
+         */
+        path = e->len ? (const char*) (e + 1) : uv__basename_r(h->path);
 
         h->cb(h, path, events, 0);
       }
-      /* done iterating, time to (maybe) free empty watcher_list */
-      w->iterating = 0;
-      maybe_free_watcher_list(w, loop);
+
+      if (!QUEUE_EMPTY(&b)) {
+        /* Hash table may have been resized by callback, look up slot again. */
+        q = lookup_wd(&loop->inotify_watchers, e->wd);
+        assert(q != NULL);
+        QUEUE_ADD(q, &b);
+      }
     }
   }
+}
+
+
+static int uv__inotify_init(uv_loop_t* loop, int* fd, uv__io_t* w) {
+  if (*fd != -1)
+    return 0;
+
+  *fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+  if (*fd == -1)
+    return UV__ERR(errno);
+
+  uv__io_init(w, uv__inotify_read, *fd);
+  uv__io_start(loop, w, POLLIN);
+
+  return 0;
 }
 
 
@@ -1583,51 +1656,36 @@ int uv_fs_event_start(uv_fs_event_t* handle,
                       uv_fs_event_cb cb,
                       const char* path,
                       unsigned int flags) {
-  struct watcher_list* w;
-  size_t len;
-  int events;
+  char* path_copy;
+  uv_loop_t* loop;
   int err;
   int wd;
 
   if (uv__is_active(handle))
     return UV_EINVAL;
 
-  err = init_inotify(handle->loop);
+  loop = handle->loop;
+  err = uv__inotify_init(loop, &loop->inotify_fd, &loop->inotify_read_watcher);
   if (err)
     return err;
 
-  events = IN_ATTRIB
-         | IN_CREATE
-         | IN_MODIFY
-         | IN_DELETE
-         | IN_DELETE_SELF
-         | IN_MOVE_SELF
-         | IN_MOVED_FROM
-         | IN_MOVED_TO;
-
-  wd = inotify_add_watch(handle->loop->inotify_fd, path, events);
-  if (wd == -1)
-    return UV__ERR(errno);
-
-  w = find_watcher(handle->loop, wd);
-  if (w)
-    goto no_insert;
-
-  len = strlen(path) + 1;
-  w = uv__malloc(sizeof(*w) + len);
-  if (w == NULL)
+  path_copy = uv__strdup(path);
+  if (path_copy == NULL)
     return UV_ENOMEM;
 
-  w->wd = wd;
-  w->path = memcpy(w + 1, path, len);
-  QUEUE_INIT(&w->watchers);
-  w->iterating = 0;
-  RB_INSERT(watcher_root, CAST(&handle->loop->inotify_watchers), w);
+  wd = uv__inotify_add_watch(loop->inotify_fd, path);
+  if (wd < 0) {
+    uv__free(path_copy);
+    return wd;
+  }
 
-no_insert:
+  if (insert_wd(&loop->inotify_watchers, &handle->watchers, wd)) {
+    uv__free(path_copy);
+    return UV_ENOMEM;
+  }
+
   uv__handle_start(handle);
-  QUEUE_INSERT_TAIL(&w->watchers, &handle->watchers);
-  handle->path = w->path;
+  handle->path = path_copy;
   handle->cb = cb;
   handle->wd = wd;
 
@@ -1636,20 +1694,26 @@ no_insert:
 
 
 int uv_fs_event_stop(uv_fs_event_t* handle) {
-  struct watcher_list* w;
+  struct inotify_watchers* w;
 
   if (!uv__is_active(handle))
     return 0;
 
-  w = find_watcher(handle->loop, handle->wd);
-  assert(w != NULL);
+  /* Stop inotify watcher if this is the last handle. inotify_rm_watch()
+   * returns EINVAL when the watched file has been deleted or its file
+   * system unmounted so ignore errors.
+   */
+  if (&handle->watchers == QUEUE_NEXT(QUEUE_NEXT(&handle->watchers))) {
+    inotify_rm_watch(handle->loop->inotify_fd, handle->wd);
+    w = handle->loop->inotify_watchers;
+    w->cap -= 1;
+  }
 
-  handle->wd = -1;
-  handle->path = NULL;
-  uv__handle_stop(handle);
   QUEUE_REMOVE(&handle->watchers);
-
-  maybe_free_watcher_list(w, handle->loop);
+  uv__handle_stop(handle);
+  uv__free(handle->path);
+  handle->path = NULL;
+  handle->wd = -1;
 
   return 0;
 }
