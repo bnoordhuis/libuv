@@ -74,8 +74,8 @@ typedef void *QUEUE[2];
     if (QUEUE_EMPTY(h))                                                       \
       QUEUE_INIT(n);                                                          \
     else {                                                                    \
-      QUEUE* q = QUEUE_HEAD(h);                                               \
-      QUEUE_SPLIT(h, q, n);                                                   \
+      QUEUE* q_ = QUEUE_HEAD(h);                                              \
+      QUEUE_SPLIT(h, q_, n);                                                  \
     }                                                                         \
   }                                                                           \
   while (0)
