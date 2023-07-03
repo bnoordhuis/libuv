@@ -139,6 +139,7 @@ INLINE static void uv__insert_pending_req(uv_loop_t* loop, uv_req_t* req) {
 
 
 INLINE static void uv__process_reqs(uv_loop_t* loop) {
+  uv_accept_t* accept_req;
   uv_req_t* req;
   uv_req_t* first;
   uv_req_t* next;
@@ -163,9 +164,21 @@ INLINE static void uv__process_reqs(uv_loop_t* loop) {
         DELEGATE_STREAM_REQ(loop, (uv_write_t*) req, write, handle);
         break;
 
-      case UV_ACCEPT:
+      case UV_INTERNAL_ACCEPT:
         DELEGATE_STREAM_REQ(loop, req, accept, data);
         break;
+
+      case UV_ACCEPT:
+        accept_req = (uv_accept_t*) req;
+        if (accept_req->server->type == UV_TCP) {
+          uv__process_tcp_stream_accept_req(loop, accept_req);
+          break;
+        }
+        if (accept_req->server->type == UV_NAMED_PIPE) {
+          uv__process_pipe_stream_accept_req(loop, accept_req);
+          break;
+        }
+        abort();  /* Unreachable. */
 
       case UV_CONNECT:
         DELEGATE_STREAM_REQ(loop, (uv_connect_t*) req, connect, handle);

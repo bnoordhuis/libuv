@@ -144,6 +144,15 @@ int uv__loop_configure(uv_loop_t* loop, uv_loop_option option, va_list ap);
 
 void uv__loop_close(uv_loop_t* loop);
 
+void uv__stream_accept(uv_accept_t* req,
+                       uv_stream_t* server,
+                       uv_stream_t* client,
+                       unsigned int flags,
+                       uv_accept_cb cb,
+                       int first);
+
+int uv__stream_accept_cancel(uv_accept_t* req);
+
 int uv__read_start(uv_stream_t* stream,
                    uv_alloc_cb alloc_cb,
                    uv_read_cb read_cb);
@@ -419,15 +428,22 @@ struct uv__iou {
 };
 #endif  /* __linux__ */
 
+/* Defined in src/uv-common.c */
+struct uv__accept_reqs;
+
 struct uv__loop_internal_fields_s {
   unsigned int flags;
   uv__loop_metrics_t loop_metrics;
   int current_timeout;
+  struct uv__accept_reqs* accept_reqs;
 #ifdef __linux__
   struct uv__iou ctl;
   struct uv__iou iou;
   void* inv;  /* used by uv__platform_invalidate_fd() */
 #endif  /* __linux__ */
 };
+
+struct uv__queue* uv__accept_reqs_get(struct uv__accept_reqs** slot,
+                                      const uv_stream_t* server);
 
 #endif /* UV_COMMON_H_ */

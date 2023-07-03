@@ -99,6 +99,8 @@ TEST_DECLARE   (tcp6_ping_pong_vec)
 TEST_DECLARE   (pipe_ping_pong)
 TEST_DECLARE   (pipe_ping_pong_vec)
 TEST_DECLARE   (delayed_accept)
+TEST_DECLARE   (tcp_stream_accept)
+TEST_DECLARE   (pipe_stream_accept)
 TEST_DECLARE   (multiple_listen)
 #ifndef _WIN32
 TEST_DECLARE   (tcp_write_after_connect)
@@ -650,6 +652,9 @@ TASK_LIST_START
   TEST_ENTRY  (ipc_send_recv_tcp_inprocess)
   TEST_ENTRY  (ipc_tcp_connection)
   TEST_ENTRY  (ipc_send_zero)
+
+  TEST_ENTRY  (tcp_stream_accept)
+  TEST_ENTRY  (pipe_stream_accept)
 
   TEST_ENTRY  (tcp_alloc_cb_fail)
 

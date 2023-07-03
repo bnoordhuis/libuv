@@ -321,6 +321,9 @@ typedef struct {
   uv_idle_cb idle_cb;                                                         \
   struct uv__queue queue;                                                     \
 
+#define UV_ACCEPT_PRIVATE_FIELDS                                              \
+  void* unused[4];
+
 #define UV_ASYNC_PRIVATE_FIELDS                                               \
   uv_async_cb async_cb;                                                       \
   struct uv__queue queue;                                                     \

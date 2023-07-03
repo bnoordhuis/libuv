@@ -134,21 +134,6 @@ int uv__pipe_listen(uv_pipe_t* handle, int backlog, uv_connection_cb cb) {
   if (handle->ipc)
     return UV_EINVAL;
 
-#if defined(__MVS__) || defined(__PASE__)
-  /* On zOS, backlog=0 has undefined behaviour */
-  /* On IBMi PASE, backlog=0 leads to "Connection refused" error */
-  if (backlog == 0)
-    backlog = 1;
-  else if (backlog < 0)
-    backlog = SOMAXCONN;
-#endif
-
-  if (listen(uv__stream_fd(handle), backlog))
-    return UV__ERR(errno);
-
-  handle->connection_cb = cb;
-  handle->io_watcher.cb = uv__server_io;
-  uv__io_start(handle->loop, &handle->io_watcher, POLLIN);
   return 0;
 }
 

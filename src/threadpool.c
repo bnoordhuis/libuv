@@ -390,6 +390,8 @@ int uv_cancel(uv_req_t* req) {
   uv_loop_t* loop;
 
   switch (req->type) {
+  case UV_ACCEPT:
+    return uv__stream_accept_cancel((uv_accept_t*) req);
   case UV_FS:
     loop =  ((uv_fs_t*) req)->loop;
     wreq = &((uv_fs_t*) req)->work_req;

@@ -51,6 +51,10 @@ int uv_listen(uv_stream_t* stream, int backlog, uv_connection_cb cb) {
 int uv_accept(uv_stream_t* server, uv_stream_t* client) {
   int err;
 
+  if (server->stream.serv.connection_cb == NULL) {
+    return UV_EINVAL;
+  }
+
   err = ERROR_INVALID_PARAMETER;
   switch (server->type) {
     case UV_TCP:
@@ -249,4 +253,58 @@ int uv_stream_set_blocking(uv_stream_t* handle, int blocking) {
     handle->flags &= ~UV_HANDLE_BLOCKING_WRITES;
 
   return 0;
+}
+
+
+void uv__stream_accept(uv_accept_t* req,
+                       uv_stream_t* server,
+                       uv_stream_t* client,
+                       unsigned int flags,
+                       uv_accept_cb cb,
+                       int first) {
+  UV_REQ_INIT(req, UV_ACCEPT);
+  req->cb = cb;
+  req->server = server;
+  req->client = client;
+
+  if (server->type == UV_TCP) {
+    uv__tcp_stream_accept(server->loop, (uv_tcp_t*) server, req);
+    return;
+  }
+
+  if (server->type == UV_NAMED_PIPE) {
+    uv__pipe_stream_accept(server->loop, (uv_pipe_t*) server, req);
+    return;
+  }
+
+  abort();  /* Unreachable. */
+}
+
+
+int uv__stream_accept_cancel(uv_accept_t* req) {
+  struct uv__accept_reqs** slot;
+  struct uv__queue* q;
+  uv_stream_t* server;
+  uv_loop_t* loop;
+
+  server = req->server;
+  loop = server->loop;
+
+  slot = &uv__get_internal_fields(loop)->accept_reqs;
+  q = uv__accept_reqs_get(slot, server);
+
+  assert(q != NULL);
+  assert(!uv__queue_empty(q));
+
+  return UV_EBUSY; // TODO(bnoordhuis)
+
+  if (&req->queue == uv__queue_head(q)) {
+
+  } else {
+    UNREGISTER_HANDLE_REQ(loop, server, req);
+    uv__queue_remove(&req->queue);
+    server->reqs_pending--;
+  }
+
+  return UV_EBUSY;
 }

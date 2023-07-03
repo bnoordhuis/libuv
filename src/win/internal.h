@@ -86,12 +86,14 @@ void uv__process_tcp_write_req(uv_loop_t* loop, uv_tcp_t* handle,
     uv_write_t* req);
 void uv__process_tcp_accept_req(uv_loop_t* loop, uv_tcp_t* handle,
     uv_req_t* req);
+void uv__process_tcp_stream_accept_req(uv_loop_t* loop, uv_accept_t* req);
 void uv__process_tcp_connect_req(uv_loop_t* loop, uv_tcp_t* handle,
     uv_connect_t* req);
 void uv__process_tcp_shutdown_req(uv_loop_t* loop,
                                   uv_tcp_t* stream,
                                   uv_shutdown_t* req);
 
+void uv__tcp_stream_accept(uv_loop_t* loop, uv_tcp_t* handle, uv_accept_t* req);
 void uv__tcp_close(uv_loop_t* loop, uv_tcp_t* tcp);
 void uv__tcp_endgame(uv_loop_t* loop, uv_tcp_t* handle);
 
@@ -141,11 +143,13 @@ void uv__process_pipe_write_req(uv_loop_t* loop, uv_pipe_t* handle,
     uv_write_t* req);
 void uv__process_pipe_accept_req(uv_loop_t* loop, uv_pipe_t* handle,
     uv_req_t* raw_req);
+void uv__process_pipe_stream_accept_req(uv_loop_t* loop, uv_accept_t* req);
 void uv__process_pipe_connect_req(uv_loop_t* loop, uv_pipe_t* handle,
     uv_connect_t* req);
 void uv__process_pipe_shutdown_req(uv_loop_t* loop, uv_pipe_t* handle,
     uv_shutdown_t* req);
 
+void uv__pipe_stream_accept(uv_loop_t* loop, uv_pipe_t* pipe, uv_accept_t* req);
 void uv__pipe_close(uv_loop_t* loop, uv_pipe_t* handle);
 void uv__pipe_endgame(uv_loop_t* loop, uv_pipe_t* handle);
 

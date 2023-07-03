@@ -187,6 +187,7 @@ struct uv__queue {
   XX(GETADDRINFO, getaddrinfo)                                                \
   XX(GETNAMEINFO, getnameinfo)                                                \
   XX(RANDOM, random)                                                          \
+  XX(ACCEPT, accept)                                                          \
 
 typedef enum {
 #define XX(code, _) UV_ ## code = UV__ ## code,
@@ -245,6 +246,7 @@ typedef struct uv_udp_send_s uv_udp_send_t;
 typedef struct uv_fs_s uv_fs_t;
 typedef struct uv_work_s uv_work_t;
 typedef struct uv_random_s uv_random_t;
+typedef struct uv_accept_s uv_accept_t;
 
 /* None of the above. */
 typedef struct uv_env_item_s uv_env_item_t;
@@ -328,6 +330,7 @@ typedef void (*uv_write_cb)(uv_write_t* req, int status);
 typedef void (*uv_connect_cb)(uv_connect_t* req, int status);
 typedef void (*uv_shutdown_cb)(uv_shutdown_t* req, int status);
 typedef void (*uv_connection_cb)(uv_stream_t* server, int status);
+typedef void (*uv_accept_cb)(uv_accept_t* req, int status);
 typedef void (*uv_close_cb)(uv_handle_t* handle);
 typedef void (*uv_poll_cb)(uv_poll_t* handle, int status, int events);
 typedef void (*uv_timer_cb)(uv_timer_t* handle);
@@ -540,6 +543,12 @@ UV_EXTERN size_t uv_stream_get_write_queue_size(const uv_stream_t* stream);
 UV_EXTERN int uv_listen(uv_stream_t* stream, int backlog, uv_connection_cb cb);
 UV_EXTERN int uv_accept(uv_stream_t* server, uv_stream_t* client);
 
+UV_EXTERN int uv_stream_accept(uv_accept_t* req,
+                               uv_stream_t* server,
+                               uv_stream_t* client,
+                               unsigned int flags,
+                               uv_accept_cb cb);
+
 UV_EXTERN int uv_read_start(uv_stream_t*,
                             uv_alloc_cb alloc_cb,
                             uv_read_cb read_cb);
@@ -628,6 +637,18 @@ struct uv_connect_s {
   uv_connect_cb cb;
   uv_stream_t* handle;
   UV_CONNECT_PRIVATE_FIELDS
+};
+
+
+struct uv_accept_s {
+  UV_REQ_FIELDS
+  /* public, read-only */
+  uv_stream_t* server;
+  uv_stream_t* client;
+  /* private */
+  uv_accept_cb cb;
+  struct uv__queue queue;
+  UV_ACCEPT_PRIVATE_FIELDS
 };
 
 

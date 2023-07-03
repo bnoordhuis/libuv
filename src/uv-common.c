@@ -1024,3 +1024,162 @@ uint64_t uv_metrics_idle_time(uv_loop_t* loop) {
     idle_time += uv_hrtime() - entry_time;
   return idle_time;
 }
+
+
+static uv_connection_cb uv__stream_connection_cb(uv_stream_t* stream) {
+#ifdef _WIN32
+  return stream->stream.serv.connection_cb;
+#else
+  return stream->connection_cb;
+#endif
+}
+
+
+int uv_stream_accept(uv_accept_t* req,
+                     uv_stream_t* server,
+                     uv_stream_t* client,
+                     unsigned int flags,
+                     uv_accept_cb cb) {
+  struct uv__accept_reqs** slot;
+  struct uv__queue* q;
+  int first;
+
+  if (server->type != UV_TCP)
+    if (server->type != UV_NAMED_PIPE)
+      return UV_EINVAL;
+
+  /* No old-style "firehose" servers. */
+  if (NULL != uv__stream_connection_cb(server))
+    return UV_EINVAL;
+
+  if (server->loop != client->loop)
+    return UV_EINVAL;
+
+  if (server->type != client->type)
+    return UV_EINVAL;
+
+  if (flags != 0)
+    return UV_EINVAL;
+
+  if (cb == NULL)
+    return UV_EINVAL;
+
+  slot = &uv__get_internal_fields(server->loop)->accept_reqs;
+  q = uv__accept_reqs_get(slot, server);
+
+  if (q == NULL)
+    return UV_ENOMEM;
+
+  first = uv__queue_empty(q);
+  uv__stream_accept(req, server, client, flags, cb, first);
+  uv__queue_insert_tail(q, &req->queue);
+
+  return 0;
+}
+
+
+/* A not completely terrible hash function that is pointer size agnostic. */
+static uintptr_t hash(uintptr_t v) {
+  uintptr_t h;
+  char* p;
+
+  h = 0;
+  for (p = (char*) &v; p != (char*) (&v + 1); p++)
+    h = 31 * h + *p;
+
+  return h;
+}
+
+
+struct uv__accept_reqs {
+  size_t cap;  /* Capacity. Invariant: cap >= len */
+  size_t len;
+  struct uv__queue queue[];
+};
+
+
+struct uv__queue* uv__accept_reqs_get(struct uv__accept_reqs** slot,
+                                      const uv_stream_t* server) {
+  struct uv__accept_reqs* t;
+  struct uv__queue* q;
+  struct uv__queue* r;
+  uv_accept_t* req;
+  uint32_t key;
+  size_t mask;
+  size_t cap;
+  size_t len;
+  size_t i;
+
+  if (*slot == NULL) {
+    cap = 128;  /* Must be a power of two. */
+    *slot = uv__malloc(offsetof(struct uv__accept_reqs, queue[cap]));
+
+    if (*slot == NULL)
+      return NULL;
+
+    (*slot)->cap = cap;
+    (*slot)->len = 1;
+
+    for (i = 0; i < cap; i++)
+      uv__queue_init(&(*slot)->queue[i]);
+
+    key = hash((uintptr_t) server);
+    mask = cap - 1;
+
+    return &(*slot)->queue[key & mask];
+  }
+
+  cap = (*slot)->cap;
+  len = (*slot)->len;
+
+  if (4 * len > 3 * cap) {  /* Resize if load factor > 75% */
+    cap += cap;
+    t = uv__malloc(offsetof(struct uv__accept_reqs, queue[cap]));
+
+    if (t == NULL)
+      return NULL;
+
+    t->cap = cap;
+    t->len = len;
+
+    for (i = 0; i < cap; i++)
+      uv__queue_init(&t->queue[i]);
+
+    mask = cap - 1;
+
+    for (i = 0; i < cap/2; i++) {
+      q = &(*slot)->queue[i];
+
+      if (uv__queue_empty(q))
+        continue;
+
+      req = container_of(q->next, uv_accept_t, queue);
+      key = hash((uintptr_t) req->server);
+
+      do
+        r = &t->queue[key++ & mask];  /* Linear probe. */
+      while (!uv__queue_empty(r));
+
+      uv__queue_split(q, q->next, r);
+    }
+
+    uv__free(*slot);
+    *slot = t;
+  }
+
+  (*slot)->len += 1;
+  mask = cap - 1;
+  key = hash((uintptr_t) server);
+
+  for (;;) {
+    q = &(*slot)->queue[key++ & mask];  /* Linear probe. */
+
+    if (uv__queue_empty(q))
+      return q;
+
+    req = container_of(q->next, uv_accept_t, queue);
+
+    if (server == req->server)
+      return q;
+  }
+}

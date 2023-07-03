@@ -348,21 +348,12 @@ int uv__tcp_listen(uv_tcp_t* tcp, int backlog, uv_connection_cb cb) {
   */
   flags |= UV_HANDLE_BOUND;
 #endif
+
   err = maybe_new_socket(tcp, AF_INET, flags);
-  if (err)
-    return err;
+  if (err == 0)
+    tcp->flags |= UV_HANDLE_BOUND;
 
-  if (listen(tcp->io_watcher.fd, backlog))
-    return UV__ERR(errno);
-
-  tcp->connection_cb = cb;
-  tcp->flags |= UV_HANDLE_BOUND;
-
-  /* Start listening for connections. */
-  tcp->io_watcher.cb = uv__server_io;
-  uv__io_start(tcp->loop, &tcp->io_watcher, POLLIN);
-
-  return 0;
+  return err;
 }
 
 

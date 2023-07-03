@@ -506,30 +506,69 @@ static int uv__emfile_trick(uv_loop_t* loop, int accept_fd) {
 
 
 void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+  struct uv__accept_reqs** slot;
+  struct uv__queue* q;
   uv_stream_t* stream;
+  uv_accept_t* req;
+  unsigned flags;
+  int clientfd;
+  int serverfd;
   int err;
-  int fd;
 
   stream = container_of(w, uv_stream_t, io_watcher);
   assert(events & POLLIN);
   assert(stream->accepted_fd == -1);
   assert(!(stream->flags & UV_HANDLE_CLOSING));
 
-  fd = uv__stream_fd(stream);
-  err = uv__accept(fd);
+  serverfd = uv__stream_fd(stream);
+  q = NULL;
 
-  if (err == UV_EMFILE || err == UV_ENFILE)
-    err = uv__emfile_trick(loop, fd);  /* Shed load. */
+  if (stream->connection_cb != NULL)
+    goto tryaccept;
 
-  if (err < 0)
+  slot = &uv__get_internal_fields(loop)->accept_reqs;
+  q = uv__accept_reqs_get(slot, stream);
+  assert(q != NULL);
+
+  if (uv__queue_empty(q)) {
+    uv__io_stop(loop, &stream->io_watcher, POLLIN);
+    uv__handle_stop(stream);
+    return;
+  }
+
+tryaccept:
+
+  clientfd = uv__accept(serverfd);
+  if (clientfd == UV_EMFILE || clientfd == UV_ENFILE)
+    clientfd = uv__emfile_trick(loop, serverfd);  /* Shed load. */
+
+  if (clientfd < 0)
     return;
 
-  stream->accepted_fd = err;
-  stream->connection_cb(stream, 0);
+  if (q == NULL) {
+    /* Old-style "firehose" callback. */
+    stream->accepted_fd = clientfd;
+    stream->connection_cb(stream, 0);
+    if (stream->accepted_fd != -1) {
+      /* The user hasn't yet accepted called uv_accept() */
+      uv__io_stop(loop, &stream->io_watcher, POLLIN);
+    }
+  } else {
+    /* New-style request-based accept. */
+    req = container_of(q->next, uv_accept_t, queue);
+    uv__queue_remove(&req->queue);
+    uv__req_unregister(loop, req);
 
-  if (stream->accepted_fd != -1)
-    /* The user hasn't yet accepted called uv_accept() */
-    uv__io_stop(loop, &stream->io_watcher, POLLIN);
+    if (uv__queue_empty(q)) {
+      uv__io_stop(loop, &stream->io_watcher, POLLIN);
+      uv__handle_stop(stream);
+    }
+
+    flags = UV_HANDLE_READABLE | UV_HANDLE_WRITABLE | UV_HANDLE_BOUND;
+    err = uv__stream_open(req->client, clientfd, flags);
+    req->cb(req, err);
+    q = NULL;  /* Not safe to use after callback returns. */
+  }
 }
 
 
@@ -537,6 +576,9 @@ int uv_accept(uv_stream_t* server, uv_stream_t* client) {
   int err;
 
   assert(server->loop == client->loop);
+
+  if (server->connection_cb == NULL)  /* Request mode. */
+    return UV_EINVAL;
 
   if (server->accepted_fd == -1)
     return UV_EAGAIN;
@@ -600,9 +642,10 @@ done:
 
 int uv_listen(uv_stream_t* stream, int backlog, uv_connection_cb cb) {
   int err;
-  if (uv__is_closing(stream)) {
+
+  if (uv__is_closing(stream))
     return UV_EINVAL;
-  }
+
   switch (stream->type) {
   case UV_TCP:
     err = uv__tcp_listen((uv_tcp_t*)stream, backlog, cb);
@@ -616,10 +659,33 @@ int uv_listen(uv_stream_t* stream, int backlog, uv_connection_cb cb) {
     err = UV_EINVAL;
   }
 
-  if (err == 0)
-    uv__handle_start(stream);
+  if (err != 0)
+    return err;
 
-  return err;
+#if defined(__MVS__) || defined(__PASE__)
+  /* On zOS, backlog=0 has undefined behaviour */
+  /* On IBMi PASE, backlog=0 leads to "Connection refused" error */
+  if (backlog == 0)
+    backlog = 1;
+  else if (backlog < 0)
+    backlog = SOMAXCONN;
+#endif
+
+  if (listen(uv__stream_fd(stream), backlog))
+    return UV__ERR(errno);
+
+  stream->connection_cb = cb;
+  stream->io_watcher.cb = uv__server_io;
+
+  /* Start listening for connections if the user
+   * provided an old-style "firehose" callback.
+   */
+  if (cb != NULL) {
+    uv__io_start(stream->loop, &stream->io_watcher, POLLIN);
+    uv__handle_start(stream);
+  }
+
+  return 0;
 }
 
 
@@ -1559,4 +1625,49 @@ int uv_stream_set_blocking(uv_stream_t* handle, int blocking) {
    * will fail with EBADF if it's not valid.
    */
   return uv__nonblock(uv__stream_fd(handle), !blocking);
+}
+
+
+void uv__stream_accept(uv_accept_t* req,
+                       uv_stream_t* server,
+                       uv_stream_t* client,
+                       unsigned int flags,
+                       uv_accept_cb cb,
+                       int first) {
+  uv__req_init(server->loop, req, UV_ACCEPT);
+  req->cb = cb;
+  req->server = server;
+  req->client = client;
+
+  if (first) {
+    uv__io_start(server->loop, &server->io_watcher, POLLIN);
+    uv__handle_start(server);
+  }
+}
+
+
+int uv__stream_accept_cancel(uv_accept_t* req) {
+  struct uv__accept_reqs** slot;
+  struct uv__queue* q;
+  uv_stream_t* server;
+  uv_loop_t* loop;
+
+  server = req->server;
+  loop = server->loop;
+
+  uv__req_unregister(loop, req);
+  uv__queue_remove(&req->queue);
+
+  slot = &uv__get_internal_fields(loop)->accept_reqs;
+
+  q = uv__accept_reqs_get(slot, server);
+  if (q == NULL)
+    return UV_EBUSY;  /* Can't really happen. */
+
+  if (uv__queue_empty(q)) {
+    uv__io_stop(loop, &server->io_watcher, POLLIN);
+    uv__handle_stop(server);
+  }
+
+  return 0;
 }

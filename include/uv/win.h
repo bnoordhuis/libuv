@@ -363,7 +363,7 @@ typedef struct {
 
 #define UV_REQ_TYPE_PRIVATE                                                   \
   /* TODO: remove the req suffix */                                           \
-  UV_ACCEPT,                                                                  \
+  UV_INTERNAL_ACCEPT,                                                         \
   UV_FS_EVENT_REQ,                                                            \
   UV_POLL_REQ,                                                                \
   UV_PROCESS_EXIT,                                                            \
@@ -388,6 +388,19 @@ typedef struct {
     } connect;                                                                \
   } u;                                                                        \
   struct uv_req_s* next_req;
+
+#define UV_ACCEPT_PRIVATE_FIELDS                                              \
+  union {                                                                     \
+    struct {                                                                  \
+      HANDLE pipe_handle;                                                     \
+    } pipe;                                                                   \
+    struct {                                                                  \
+      SOCKET accept_socket;                                                   \
+      char accept_buffer[sizeof(struct sockaddr_storage) * 2 + 32];           \
+      HANDLE event_handle;                                                    \
+      HANDLE wait_handle;                                                     \
+    } tcp;                                                                    \
+  } accept;
 
 #define UV_WRITE_PRIVATE_FIELDS \
   int coalesced;                \

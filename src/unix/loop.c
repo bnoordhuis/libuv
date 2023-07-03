@@ -212,6 +212,10 @@ int uv__loop_configure(uv_loop_t* loop, uv_loop_option option, va_list ap) {
   uv__loop_internal_fields_t* lfields;
 
   lfields = uv__get_internal_fields(loop);
+
+  uv__free(lfields->accept_reqs);
+  lfields->accept_reqs = NULL;
+
   if (option == UV_METRICS_IDLE_TIME) {
     lfields->flags |= UV_METRICS_IDLE_TIME;
     return 0;

@@ -378,15 +378,21 @@ static void CALLBACK post_write_completion(void* context, BOOLEAN timed_out) {
 }
 
 
-static void uv__tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
+static void uv__tcp_queue_accept_do(
+    uv_tcp_t* handle,
+    uv_req_t* req,
+    SOCKET* accept_socket,
+    char (*accept_buffer)[32 + 2 * sizeof(struct sockaddr_storage)],
+    HANDLE* event_handle,
+    HANDLE* wait_handle) {
   uv_loop_t* loop = handle->loop;
   BOOL success;
   DWORD bytes;
-  SOCKET accept_socket;
+  SOCKET sock;
   short family;
 
   assert(handle->flags & UV_HANDLE_LISTENING);
-  assert(req->accept_socket == INVALID_SOCKET);
+  assert(*accept_socket == INVALID_SOCKET);
 
   /* choose family and extension function */
   if (handle->flags & UV_HANDLE_IPV6) {
@@ -396,69 +402,95 @@ static void uv__tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
   }
 
   /* Open a socket for the accepted connection. */
-  accept_socket = socket(family, SOCK_STREAM, 0);
-  if (accept_socket == INVALID_SOCKET) {
+  sock = socket(family, SOCK_STREAM, 0);
+  if (sock == INVALID_SOCKET) {
     SET_REQ_ERROR(req, WSAGetLastError());
-    uv__insert_pending_req(loop, (uv_req_t*)req);
+    uv__insert_pending_req(loop, req);
     handle->reqs_pending++;
     return;
   }
 
   /* Make the socket non-inheritable */
-  if (!SetHandleInformation((HANDLE) accept_socket, HANDLE_FLAG_INHERIT, 0)) {
+  if (!SetHandleInformation((HANDLE) sock, HANDLE_FLAG_INHERIT, 0)) {
     SET_REQ_ERROR(req, GetLastError());
-    uv__insert_pending_req(loop, (uv_req_t*)req);
+    uv__insert_pending_req(loop, req);
     handle->reqs_pending++;
-    closesocket(accept_socket);
+    closesocket(sock);
     return;
   }
 
   /* Prepare the overlapped structure. */
   memset(&(req->u.io.overlapped), 0, sizeof(req->u.io.overlapped));
   if (handle->flags & UV_HANDLE_EMULATE_IOCP) {
-    assert(req->event_handle != NULL);
-    req->u.io.overlapped.hEvent = (HANDLE) ((ULONG_PTR) req->event_handle | 1);
+    assert(*event_handle != NULL);
+    req->u.io.overlapped.hEvent = (HANDLE) ((ULONG_PTR) *event_handle | 1);
   }
 
   success = handle->tcp.serv.func_acceptex(handle->socket,
-                                          accept_socket,
-                                          (void*)req->accept_buffer,
-                                          0,
-                                          sizeof(struct sockaddr_storage),
-                                          sizeof(struct sockaddr_storage),
-                                          &bytes,
-                                          &req->u.io.overlapped);
+                                           sock,
+                                           *accept_buffer,
+                                           0,
+                                           sizeof(struct sockaddr_storage),
+                                           sizeof(struct sockaddr_storage),
+                                           &bytes,
+                                           &req->u.io.overlapped);
 
   if (UV_SUCCEEDED_WITHOUT_IOCP(success)) {
     /* Process the req without IOCP. */
-    req->accept_socket = accept_socket;
+    *accept_socket = sock;
     handle->reqs_pending++;
-    uv__insert_pending_req(loop, (uv_req_t*)req);
+    uv__insert_pending_req(loop, req);
   } else if (UV_SUCCEEDED_WITH_IOCP(success)) {
     /* The req will be processed with IOCP. */
-    req->accept_socket = accept_socket;
+    *accept_socket = sock;
     handle->reqs_pending++;
     if (handle->flags & UV_HANDLE_EMULATE_IOCP &&
-        req->wait_handle == INVALID_HANDLE_VALUE &&
-        !RegisterWaitForSingleObject(&req->wait_handle,
-          req->event_handle, post_completion, (void*) req,
+        *wait_handle == INVALID_HANDLE_VALUE &&
+        !RegisterWaitForSingleObject(wait_handle,
+          *event_handle, post_completion, req,
           INFINITE, WT_EXECUTEINWAITTHREAD)) {
       SET_REQ_ERROR(req, GetLastError());
-      uv__insert_pending_req(loop, (uv_req_t*)req);
+      uv__insert_pending_req(loop, req);
     }
   } else {
     /* Make this req pending reporting an error. */
     SET_REQ_ERROR(req, WSAGetLastError());
-    uv__insert_pending_req(loop, (uv_req_t*)req);
+    uv__insert_pending_req(loop, req);
     handle->reqs_pending++;
     /* Destroy the preallocated client socket. */
-    closesocket(accept_socket);
+    closesocket(sock);
     /* Destroy the event handle */
     if (handle->flags & UV_HANDLE_EMULATE_IOCP) {
-      CloseHandle(req->event_handle);
-      req->event_handle = NULL;
+      CloseHandle(*event_handle);
+      *event_handle = NULL;
     }
   }
+}
+
+
+static void uv__tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
+  uv__tcp_queue_accept_do(handle,
+                          (uv_req_t*) req,
+                          &req->accept_socket,
+                          &req->accept_buffer,
+                          &req->event_handle,
+                          &req->wait_handle);
+}
+
+
+void uv__tcp_stream_accept(uv_loop_t* loop,
+                           uv_tcp_t* handle,
+                           uv_accept_t* req) {
+  req->accept.tcp.wait_handle = INVALID_HANDLE_VALUE;
+  req->accept.tcp.event_handle = CreateEvent(NULL, 0, 0, NULL);
+  req->accept.tcp.accept_socket = INVALID_SOCKET;
+  uv__tcp_queue_accept_do(handle,
+                          (uv_req_t*) req,
+                          &req->accept.tcp.accept_socket,
+                          &req->accept.tcp.accept_buffer,
+                          &req->accept.tcp.event_handle,
+                          &req->accept.tcp.wait_handle);
+  REGISTER_HANDLE_REQ(loop, handle, req);
 }
 
 
@@ -578,6 +610,11 @@ int uv__tcp_listen(uv_tcp_t* handle, int backlog, uv_connection_cb cb) {
 
   handle->flags |= UV_HANDLE_LISTENING;
   handle->stream.serv.connection_cb = cb;
+
+  if (cb == NULL) {
+    return 0;
+  }
+
   INCREASE_ACTIVE_COUNT(loop, handle);
 
   simultaneous_accepts = handle->flags & UV_HANDLE_TCP_SINGLE_ACCEPT ? 1
@@ -592,7 +629,7 @@ int uv__tcp_listen(uv_tcp_t* handle, int backlog, uv_connection_cb cb) {
 
     for (i = 0; i < simultaneous_accepts; i++) {
       req = &handle->tcp.serv.accept_reqs[i];
-      UV_REQ_INIT(req, UV_ACCEPT);
+      UV_REQ_INIT(req, UV_INTERNAL_ACCEPT);
       req->accept_socket = INVALID_SOCKET;
       req->data = handle;
 
@@ -614,7 +651,7 @@ int uv__tcp_listen(uv_tcp_t* handle, int backlog, uv_connection_cb cb) {
      * {uv_simultaneous_server_accepts} requests. */
     for (i = simultaneous_accepts; i < uv_simultaneous_server_accepts; i++) {
       req = &handle->tcp.serv.accept_reqs[i];
-      UV_REQ_INIT(req, UV_ACCEPT);
+      UV_REQ_INIT(req, UV_INTERNAL_ACCEPT);
       req->accept_socket = INVALID_SOCKET;
       req->data = handle;
       req->wait_handle = INVALID_HANDLE_VALUE;
@@ -1191,6 +1228,35 @@ void uv__process_tcp_accept_req(uv_loop_t* loop, uv_tcp_t* handle,
 }
 
 
+void uv__process_tcp_stream_accept_req(uv_loop_t* loop, uv_accept_t* req) {
+  uv_tcp_t* handle;
+  int err;
+
+  handle = (uv_tcp_t*) req->server;
+  UNREGISTER_HANDLE_REQ(loop, handle, req);
+  uv__queue_remove(&req->queue);
+
+  if (req->accept.tcp.accept_socket == INVALID_SOCKET) {
+    err = uv_translate_sys_error(GET_REQ_SOCK_ERROR(req));
+    req->cb(req, err);
+  } else if (!REQ_SUCCESS(req)) {
+    err = uv_translate_sys_error(GET_REQ_ERROR(req));
+    req->cb(req, err);
+  } else if (setsockopt(req->accept.tcp.accept_socket,
+                 SOL_SOCKET,
+                 SO_UPDATE_ACCEPT_CONTEXT,
+                 (char*) &handle->socket,
+                 sizeof(handle->socket))) {
+    err = uv_translate_sys_error(WSAGetLastError());
+    req->cb(req, err);
+  } else {
+    req->cb(req, 0);
+  }
+
+  DECREASE_PENDING_REQ_COUNT(handle);
+}
+
+
 void uv__process_tcp_connect_req(uv_loop_t* loop, uv_tcp_t* handle,
     uv_connect_t* req) {
   int err;
@@ -1451,8 +1517,10 @@ void uv__tcp_close(uv_loop_t* loop, uv_tcp_t* tcp) {
   }
 
   if (tcp->flags & UV_HANDLE_LISTENING) {
+    if (tcp->stream.serv.connection_cb != NULL) {  /* Firehose mode. */
+      DECREASE_ACTIVE_COUNT(loop, tcp);
+    }
     tcp->flags &= ~UV_HANDLE_LISTENING;
-    DECREASE_ACTIVE_COUNT(loop, tcp);
   }
 
   tcp->flags &= ~(UV_HANDLE_READABLE | UV_HANDLE_WRITABLE);

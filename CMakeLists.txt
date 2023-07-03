@@ -592,6 +592,7 @@ if(LIBUV_BUILD_TESTS)
        test/test-pipe-server-close.c
        test/test-pipe-set-fchmod.c
        test/test-pipe-set-non-blocking.c
+       test/test-pipe-stream-accept.c
        test/test-platform-output.c
        test/test-poll-close-doesnt-corrupt-stack.c
        test/test-poll-close.c
@@ -641,6 +642,7 @@ if(LIBUV_BUILD_TESTS)
        test/test-tcp-read-stop-start.c
        test/test-tcp-rst.c
        test/test-tcp-shutdown-after-write.c
+       test/test-tcp-stream-accept.c
        test/test-tcp-try-write.c
        test/test-tcp-write-in-a-row.c
        test/test-tcp-try-write-error.c
