@@ -951,7 +951,6 @@ void uv_library_shutdown(void) {
     return;
 
   uv__process_title_cleanup();
-  uv__signal_cleanup();
 #ifdef __MVS__
   /* TODO(itodorov) - zos: revisit when Woz compiler is available. */
   uv__os390_cleanup();

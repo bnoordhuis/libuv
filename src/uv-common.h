@@ -31,9 +31,9 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <signal.h>
 
 #include "uv.h"
-#include "uv/tree.h"
 #include "queue.h"
 #include "strscpy.h"
 
@@ -227,7 +227,6 @@ void uv__run_timers(uv_loop_t* loop);
 void uv__timer_close(uv_timer_t* handle);
 
 void uv__process_title_cleanup(void);
-void uv__signal_cleanup(void);
 void uv__threadpool_cleanup(void);
 
 #define uv__has_active_reqs(loop)                                             \
@@ -426,6 +425,13 @@ struct uv__loop_internal_fields_s {
   struct uv__iou iou;
   void* inv;  /* used by uv__platform_invalidate_fd() */
 #endif  /* __linux__ */
+#ifndef _WIN32
+  uv_loop_t* loop;
+  struct uv__queue signal_handles;
+  _Atomic uint64_t signal_pending[(NSIG + 63) / 64];
+  _Atomic uint64_t signal_oneshot[(NSIG + 63) / 64];
+  struct uv__queue signal_queues[NSIG];
+#endif
 };
 
 #endif /* UV_COMMON_H_ */

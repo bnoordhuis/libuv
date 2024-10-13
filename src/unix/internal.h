@@ -304,7 +304,6 @@ int uv__pipe_listen(uv_pipe_t* handle, int backlog, uv_connection_cb cb);
 
 /* signal */
 void uv__signal_close(uv_signal_t* handle);
-void uv__signal_global_once_init(void);
 void uv__signal_loop_cleanup(uv_loop_t* loop);
 int uv__signal_loop_fork(uv_loop_t* loop);
 

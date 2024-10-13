@@ -381,13 +381,9 @@ typedef struct {
   int mode;
 
 #define UV_SIGNAL_PRIVATE_FIELDS                                              \
-  /* RB_ENTRY(uv_signal_s) tree_entry; */                                     \
-  struct {                                                                    \
-    struct uv_signal_s* rbe_left;                                             \
-    struct uv_signal_s* rbe_right;                                            \
-    struct uv_signal_s* rbe_parent;                                           \
-    int rbe_color;                                                            \
-  } tree_entry;                                                               \
+  struct uv__queue queue;                                                     \
+  void* unused0;                                                              \
+  int unused1;                                                                \
   /* Use two counters here so we don have to fiddle with atomics. */          \
   unsigned int caught_signals;                                                \
   unsigned int dispatched_signals;

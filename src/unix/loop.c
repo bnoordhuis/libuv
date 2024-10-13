@@ -20,7 +20,6 @@
  */
 
 #include "uv.h"
-#include "uv/tree.h"
 #include "internal.h"
 #include "heap-inl.h"
 #include <stdlib.h>
@@ -41,6 +40,9 @@ int uv_loop_init(uv_loop_t* loop) {
   if (lfields == NULL)
     return UV_ENOMEM;
   loop->internal_fields = lfields;
+
+  lfields->loop = loop;
+  uv__queue_init(&lfields->signal_handles);
 
   err = uv_mutex_init(&lfields->loop_metrics.lock);
   if (err)
@@ -81,7 +83,6 @@ int uv_loop_init(uv_loop_t* loop) {
   if (err)
     goto fail_platform_init;
 
-  uv__signal_global_once_init();
   err = uv__process_init(loop);
   if (err)
     goto fail_signal_init;

@@ -24,6 +24,7 @@
  */
 
 #include "uv.h"
+#include "uv/tree.h"
 #include "internal.h"
 
 #include <inttypes.h>
